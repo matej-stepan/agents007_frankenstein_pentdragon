@@ -1,0 +1,3592 @@
+{
+ "meta": {
+  "name": "taltempla-toolshed-packages",
+  "version": 1,
+  "date": "2026-10-08",
+  "status": "proposal: names checked against PyPI; versions not pinned; the wheel set resolves together (see resolve_check)",
+  "runtime": {
+   "python": "3.13",
+   "os": "Debian 13",
+   "arch": "x86_64",
+   "gpu": "none",
+   "installer": "uv"
+  },
+  "rules": [
+   "Python only: a tool is one Python file (D21). System packages exist only to support Python packages.",
+   "No GPU. Install torch, torchvision and torchaudio from https://download.pytorch.org/whl/cpu.",
+   "No version pins yet. Run uv lock after the first successful image build.",
+   "heavy = large install or slow to build. Put heavy packages in a separate image layer, or install them on demand.",
+   "source_build = no wheel on PyPI for 3.13 x86_64. It builds on install.",
+   "A package can appear in more than one category. Install each name once."
+  ],
+  "excluded": {
+   "reason_no_gpu": [
+    "tensorflow",
+    "jax[cuda12]",
+    "cupy",
+    "cudf",
+    "cuml",
+    "pycuda",
+    "numba-cuda",
+    "triton",
+    "flash-attn",
+    "xformers",
+    "bitsandbytes",
+    "vllm",
+    "deepspeed",
+    "auto-gptq",
+    "nvidia-*",
+    "onnxruntime-gpu",
+    "faiss-gpu",
+    "tensorrt",
+    "apex"
+   ],
+   "reason_too_heavy_or_fragile": [
+    "autogluon",
+    "pycaret",
+    "mediapipe-model-maker",
+    "graph-tool",
+    "opencv-python (use opencv-python-headless)"
+   ],
+   "reason_needs_display_or_hardware": [
+    "pyautogui",
+    "pynput",
+    "keyboard",
+    "pyperclip",
+    "pyserial",
+    "gpiozero",
+    "sounddevice",
+    "mss"
+   ],
+   "reason_needs_key_or_account": [
+    "third-party SDKs that need a key: PR-14 (key injection) comes later. elevenlabs is listed for the side challenge only."
+   ]
+  },
+  "counts": {
+   "python_unique": 908,
+   "python_by_category": {
+    "essentials": 55,
+    "testing": 20,
+    "data_science": 35,
+    "visualization": 26,
+    "documents_office": 40,
+    "web_and_scraping": 47,
+    "nlp_text": 60,
+    "ml_cpu": 44,
+    "image_vision": 46,
+    "audio_video": 36,
+    "databases_storage": 56,
+    "file_formats_archives": 62,
+    "web_servers_apis": 46,
+    "llm_agent_tooling": 31,
+    "security_crypto": 47,
+    "dev_tooling_quality": 79,
+    "geospatial_science": 57,
+    "finance_business": 41,
+    "math_optimization": 82,
+    "automation_cli": 52,
+    "data_generation_misc": 37
+   },
+   "system": 78,
+   "source_build": 35
+  },
+  "resolve_check": {
+   "tool": "uv 0.12.24 pip compile",
+   "target": "python 3.13, x86_64 linux, --only-binary :all:, torch from the CPU index",
+   "result": "resolved",
+   "packages_requested": 873,
+   "packages_in_resolution": 1380,
+   "excluded_from_check": "every package with source_build (35): they build from source on install",
+   "note": "torch resolved to the +cpu build. xgboost drags in nvidia-nccl-cu13 (unused without a GPU, large); drop it from the image with uv pip uninstall or use xgboost-cpu."
+  }
+ },
+ "categories": {
+  "essentials": {
+   "description": "Core libraries that nearly every tool needs.",
+   "packages": [
+    {
+     "name": "requests"
+    },
+    {
+     "name": "httpx"
+    },
+    {
+     "name": "aiohttp"
+    },
+    {
+     "name": "urllib3"
+    },
+    {
+     "name": "certifi"
+    },
+    {
+     "name": "pydantic"
+    },
+    {
+     "name": "pydantic-settings"
+    },
+    {
+     "name": "python-dotenv"
+    },
+    {
+     "name": "pyyaml"
+    },
+    {
+     "name": "tomli-w"
+    },
+    {
+     "name": "tomlkit"
+    },
+    {
+     "name": "orjson"
+    },
+    {
+     "name": "rich"
+    },
+    {
+     "name": "typer"
+    },
+    {
+     "name": "click"
+    },
+    {
+     "name": "tqdm"
+    },
+    {
+     "name": "python-dateutil"
+    },
+    {
+     "name": "tzdata"
+    },
+    {
+     "name": "pytz"
+    },
+    {
+     "name": "platformdirs"
+    },
+    {
+     "name": "filelock"
+    },
+    {
+     "name": "tenacity"
+    },
+    {
+     "name": "attrs"
+    },
+    {
+     "name": "typing-extensions"
+    },
+    {
+     "name": "packaging"
+    },
+    {
+     "name": "regex"
+    },
+    {
+     "name": "more-itertools"
+    },
+    {
+     "name": "cachetools"
+    },
+    {
+     "name": "diskcache"
+    },
+    {
+     "name": "jsonschema"
+    },
+    {
+     "name": "anyio"
+    },
+    {
+     "name": "structlog"
+    },
+    {
+     "name": "loguru"
+    },
+    {
+     "name": "psutil"
+    },
+    {
+     "name": "jmespath"
+    },
+    {
+     "name": "jsonpath-ng"
+    },
+    {
+     "name": "cloudpickle"
+    },
+    {
+     "name": "python-slugify"
+    },
+    {
+     "name": "humanize"
+    },
+    {
+     "name": "pathspec"
+    },
+    {
+     "name": "charset-normalizer"
+    },
+    {
+     "name": "chardet"
+    },
+    {
+     "name": "idna"
+    },
+    {
+     "name": "six"
+    },
+    {
+     "name": "jinja2"
+    },
+    {
+     "name": "markupsafe"
+    },
+    {
+     "name": "msgspec"
+    },
+    {
+     "name": "aiofiles"
+    },
+    {
+     "name": "backoff"
+    },
+    {
+     "name": "retrying",
+     "note": "simple retry decorator"
+    },
+    {
+     "name": "decorator"
+    },
+    {
+     "name": "wrapt"
+    },
+    {
+     "name": "lxml"
+    },
+    {
+     "name": "pillow"
+    },
+    {
+     "name": "numpy"
+    }
+   ]
+  },
+  "testing": {
+   "description": "Needed because the forge always runs a test set before install.",
+   "packages": [
+    {
+     "name": "pytest"
+    },
+    {
+     "name": "pytest-asyncio"
+    },
+    {
+     "name": "pytest-mock"
+    },
+    {
+     "name": "pytest-timeout"
+    },
+    {
+     "name": "pytest-cov"
+    },
+    {
+     "name": "pytest-xdist"
+    },
+    {
+     "name": "pytest-randomly"
+    },
+    {
+     "name": "pytest-httpx"
+    },
+    {
+     "name": "respx"
+    },
+    {
+     "name": "responses"
+    },
+    {
+     "name": "hypothesis"
+    },
+    {
+     "name": "freezegun"
+    },
+    {
+     "name": "time-machine"
+    },
+    {
+     "name": "faker"
+    },
+    {
+     "name": "syrupy"
+    },
+    {
+     "name": "coverage"
+    },
+    {
+     "name": "vcrpy"
+    },
+    {
+     "name": "pytest-subprocess"
+    },
+    {
+     "name": "mock"
+    },
+    {
+     "name": "pyfakefs"
+    }
+   ]
+  },
+  "data_science": {
+   "description": "Tables, numerics, statistics and dataframes (CPU only).",
+   "packages": [
+    {
+     "name": "numpy"
+    },
+    {
+     "name": "pandas"
+    },
+    {
+     "name": "polars"
+    },
+    {
+     "name": "scipy"
+    },
+    {
+     "name": "scikit-learn"
+    },
+    {
+     "name": "statsmodels"
+    },
+    {
+     "name": "duckdb"
+    },
+    {
+     "name": "pyarrow"
+    },
+    {
+     "name": "sympy"
+    },
+    {
+     "name": "networkx"
+    },
+    {
+     "name": "numexpr"
+    },
+    {
+     "name": "bottleneck"
+    },
+    {
+     "name": "joblib"
+    },
+    {
+     "name": "patsy"
+    },
+    {
+     "name": "xarray"
+    },
+    {
+     "name": "dask",
+     "note": "lazy dataframes on one machine"
+    },
+    {
+     "name": "numba"
+    },
+    {
+     "name": "pint"
+    },
+    {
+     "name": "uncertainties"
+    },
+    {
+     "name": "tabulate"
+    },
+    {
+     "name": "mpmath"
+    },
+    {
+     "name": "fastparquet"
+    },
+    {
+     "name": "pingouin"
+    },
+    {
+     "name": "pandera"
+    },
+    {
+     "name": "ydata-profiling",
+     "note": "slow install"
+    },
+    {
+     "name": "sqlglot"
+    },
+    {
+     "name": "modin"
+    },
+    {
+     "name": "lifelines"
+    },
+    {
+     "name": "pyjanitor"
+    },
+    {
+     "name": "missingno"
+    },
+    {
+     "name": "tsfresh",
+     "note": "heavy deps"
+    },
+    {
+     "name": "seaborn"
+    },
+    {
+     "name": "connectorx"
+    },
+    {
+     "name": "narwhals"
+    },
+    {
+     "name": "pyreadstat",
+     "note": "SPSS, SAS, Stata files"
+    }
+   ]
+  },
+  "visualization": {
+   "description": "Charts and diagrams that render without a display.",
+   "packages": [
+    {
+     "name": "matplotlib"
+    },
+    {
+     "name": "seaborn"
+    },
+    {
+     "name": "plotly"
+    },
+    {
+     "name": "altair"
+    },
+    {
+     "name": "bokeh"
+    },
+    {
+     "name": "kaleido",
+     "note": "static export for plotly"
+    },
+    {
+     "name": "graphviz"
+    },
+    {
+     "name": "pydot"
+    },
+    {
+     "name": "wordcloud"
+    },
+    {
+     "name": "folium"
+    },
+    {
+     "name": "pygal"
+    },
+    {
+     "name": "plotnine"
+    },
+    {
+     "name": "squarify"
+    },
+    {
+     "name": "mplfinance"
+    },
+    {
+     "name": "adjustText"
+    },
+    {
+     "name": "pyvis"
+    },
+    {
+     "name": "networkx"
+    },
+    {
+     "name": "vl-convert-python",
+     "note": "vega-lite to PNG/SVG without a browser"
+    },
+    {
+     "name": "cairosvg"
+    },
+    {
+     "name": "svgwrite"
+    },
+    {
+     "name": "drawsvg"
+    },
+    {
+     "name": "diagrams",
+     "note": "needs graphviz binary"
+    },
+    {
+     "name": "matplotlib-venn",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "upsetplot",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pywaffle"
+    },
+    {
+     "name": "mermaid-py"
+    }
+   ]
+  },
+  "documents_office": {
+   "description": "Read and write PDF, Word, Excel, PowerPoint, Markdown, HTML, EPUB.",
+   "packages": [
+    {
+     "name": "pypdf"
+    },
+    {
+     "name": "pdfplumber"
+    },
+    {
+     "name": "pymupdf"
+    },
+    {
+     "name": "pdfminer.six"
+    },
+    {
+     "name": "reportlab"
+    },
+    {
+     "name": "fpdf2"
+    },
+    {
+     "name": "python-docx"
+    },
+    {
+     "name": "python-pptx"
+    },
+    {
+     "name": "openpyxl"
+    },
+    {
+     "name": "xlsxwriter"
+    },
+    {
+     "name": "xlrd"
+    },
+    {
+     "name": "odfpy",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "markdown"
+    },
+    {
+     "name": "markdown-it-py"
+    },
+    {
+     "name": "mistune"
+    },
+    {
+     "name": "pypandoc",
+     "note": "needs pandoc binary"
+    },
+    {
+     "name": "weasyprint",
+     "note": "needs pango"
+    },
+    {
+     "name": "pikepdf"
+    },
+    {
+     "name": "img2pdf"
+    },
+    {
+     "name": "ebooklib"
+    },
+    {
+     "name": "striprtf"
+    },
+    {
+     "name": "mammoth"
+    },
+    {
+     "name": "pdf2image",
+     "note": "needs poppler"
+    },
+    {
+     "name": "docxtpl"
+    },
+    {
+     "name": "docxcompose"
+    },
+    {
+     "name": "pylatexenc"
+    },
+    {
+     "name": "markdownify"
+    },
+    {
+     "name": "html2text"
+    },
+    {
+     "name": "xhtml2pdf"
+    },
+    {
+     "name": "python-frontmatter"
+    },
+    {
+     "name": "camelot-py",
+     "note": "needs ghostscript"
+    },
+    {
+     "name": "pdfkit",
+     "note": "needs wkhtmltopdf"
+    },
+    {
+     "name": "pyexcel"
+    },
+    {
+     "name": "pyexcel-xlsx"
+    },
+    {
+     "name": "docx2txt"
+    },
+    {
+     "name": "unstructured",
+     "note": "heavy, optional extras"
+    },
+    {
+     "name": "markitdown",
+     "note": "Microsoft, any document to Markdown"
+    },
+    {
+     "name": "pymupdf4llm"
+    },
+    {
+     "name": "xlsx2csv"
+    },
+    {
+     "name": "tablib"
+    }
+   ]
+  },
+  "web_and_scraping": {
+   "description": "Fetch, parse and extract from the web. The toolshed network is on.",
+   "packages": [
+    {
+     "name": "beautifulsoup4"
+    },
+    {
+     "name": "lxml"
+    },
+    {
+     "name": "html5lib"
+    },
+    {
+     "name": "selectolax"
+    },
+    {
+     "name": "parsel"
+    },
+    {
+     "name": "trafilatura"
+    },
+    {
+     "name": "newspaper4k"
+    },
+    {
+     "name": "readability-lxml"
+    },
+    {
+     "name": "feedparser"
+    },
+    {
+     "name": "requests-cache"
+    },
+    {
+     "name": "playwright",
+     "note": "needs browser from system list"
+    },
+    {
+     "name": "scrapy"
+    },
+    {
+     "name": "mechanicalsoup"
+    },
+    {
+     "name": "w3lib"
+    },
+    {
+     "name": "tldextract"
+    },
+    {
+     "name": "validators"
+    },
+    {
+     "name": "extruct"
+    },
+    {
+     "name": "courlan"
+    },
+    {
+     "name": "htmldate"
+    },
+    {
+     "name": "ddgs",
+     "note": "web search without a key"
+    },
+    {
+     "name": "url-normalize"
+    },
+    {
+     "name": "yarl"
+    },
+    {
+     "name": "aiodns"
+    },
+    {
+     "name": "brotli"
+    },
+    {
+     "name": "h2"
+    },
+    {
+     "name": "websockets"
+    },
+    {
+     "name": "httpx-sse"
+    },
+    {
+     "name": "curl-cffi",
+     "note": "TLS fingerprint client"
+    },
+    {
+     "name": "lxml-html-clean"
+    },
+    {
+     "name": "cssselect"
+    },
+    {
+     "name": "pyquery"
+    },
+    {
+     "name": "furl"
+    },
+    {
+     "name": "httpcore"
+    },
+    {
+     "name": "hishel"
+    },
+    {
+     "name": "goose3",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "warcio"
+    },
+    {
+     "name": "wayback",
+     "note": "Internet Archive client"
+    },
+    {
+     "name": "waybackpy"
+    },
+    {
+     "name": "aiohttp-retry"
+    },
+    {
+     "name": "requests-toolbelt"
+    },
+    {
+     "name": "requests-oauthlib"
+    },
+    {
+     "name": "socksio"
+    },
+    {
+     "name": "pysocks"
+    },
+    {
+     "name": "fake-useragent"
+    },
+    {
+     "name": "user-agents"
+    },
+    {
+     "name": "ultimate-sitemap-parser"
+    },
+    {
+     "name": "robotexclusionrulesparser",
+     "source_build": "pure-Python sdist"
+    }
+   ]
+  },
+  "nlp_text": {
+   "description": "Text processing, search and embeddings on CPU.",
+   "packages": [
+    {
+     "name": "nltk"
+    },
+    {
+     "name": "spacy",
+     "note": "models via spacy download"
+    },
+    {
+     "name": "rapidfuzz"
+    },
+    {
+     "name": "textblob"
+    },
+    {
+     "name": "langdetect",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "lingua-language-detector"
+    },
+    {
+     "name": "ftfy"
+    },
+    {
+     "name": "unidecode"
+    },
+    {
+     "name": "tiktoken"
+    },
+    {
+     "name": "sentencepiece"
+    },
+    {
+     "name": "tokenizers"
+    },
+    {
+     "name": "sentence-transformers",
+     "note": "CPU torch",
+     "heavy": true
+    },
+    {
+     "name": "transformers",
+     "heavy": true
+    },
+    {
+     "name": "gensim"
+    },
+    {
+     "name": "rank-bm25"
+    },
+    {
+     "name": "textstat"
+    },
+    {
+     "name": "pyspellchecker"
+    },
+    {
+     "name": "python-levenshtein"
+    },
+    {
+     "name": "jellyfish"
+    },
+    {
+     "name": "dateparser"
+    },
+    {
+     "name": "parsedatetime"
+    },
+    {
+     "name": "phonenumbers"
+    },
+    {
+     "name": "email-validator"
+    },
+    {
+     "name": "babel"
+    },
+    {
+     "name": "emoji"
+    },
+    {
+     "name": "yake"
+    },
+    {
+     "name": "sumy",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "whoosh-reloaded"
+    },
+    {
+     "name": "faiss-cpu"
+    },
+    {
+     "name": "chromadb"
+    },
+    {
+     "name": "hnswlib",
+     "source_build": "compiled (needs build-essential)"
+    },
+    {
+     "name": "sqlite-vec"
+    },
+    {
+     "name": "lancedb"
+    },
+    {
+     "name": "qdrant-client"
+    },
+    {
+     "name": "annoy",
+     "source_build": "compiled (needs build-essential)"
+    },
+    {
+     "name": "textdistance"
+    },
+    {
+     "name": "inflect"
+    },
+    {
+     "name": "num2words"
+    },
+    {
+     "name": "word2number",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pyahocorasick"
+    },
+    {
+     "name": "flashtext",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "clean-text"
+    },
+    {
+     "name": "contractions"
+    },
+    {
+     "name": "stanza",
+     "note": "heavy models"
+    },
+    {
+     "name": "langid",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "simplemma"
+    },
+    {
+     "name": "spacy-lookups-data"
+    },
+    {
+     "name": "scattertext"
+    },
+    {
+     "name": "bertopic",
+     "heavy": true
+    },
+    {
+     "name": "keybert"
+    },
+    {
+     "name": "gliner",
+     "note": "CPU NER"
+    },
+    {
+     "name": "price-parser"
+    },
+    {
+     "name": "regex"
+    },
+    {
+     "name": "sacremoses"
+    },
+    {
+     "name": "sacrebleu"
+    },
+    {
+     "name": "rouge-score",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "evaluate"
+    },
+    {
+     "name": "datasets"
+    },
+    {
+     "name": "bm25s"
+    },
+    {
+     "name": "pylatexenc"
+    }
+   ]
+  },
+  "ml_cpu": {
+   "description": "Classical ML and CPU inference. No CUDA wheels anywhere.",
+   "packages": [
+    {
+     "name": "scikit-learn"
+    },
+    {
+     "name": "xgboost"
+    },
+    {
+     "name": "lightgbm"
+    },
+    {
+     "name": "catboost"
+    },
+    {
+     "name": "torch",
+     "note": "install from https://download.pytorch.org/whl/cpu",
+     "heavy": true
+    },
+    {
+     "name": "torchvision",
+     "note": "CPU index",
+     "heavy": true
+    },
+    {
+     "name": "torchaudio",
+     "note": "CPU index",
+     "heavy": true
+    },
+    {
+     "name": "onnx"
+    },
+    {
+     "name": "onnxruntime"
+    },
+    {
+     "name": "optuna"
+    },
+    {
+     "name": "shap"
+    },
+    {
+     "name": "imbalanced-learn"
+    },
+    {
+     "name": "scikit-optimize"
+    },
+    {
+     "name": "prophet"
+    },
+    {
+     "name": "sktime"
+    },
+    {
+     "name": "statsforecast"
+    },
+    {
+     "name": "pmdarima"
+    },
+    {
+     "name": "umap-learn"
+    },
+    {
+     "name": "hdbscan"
+    },
+    {
+     "name": "mlxtend"
+    },
+    {
+     "name": "lime",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "category-encoders"
+    },
+    {
+     "name": "feature-engine"
+    },
+    {
+     "name": "tslearn"
+    },
+    {
+     "name": "ctranslate2"
+    },
+    {
+     "name": "skops"
+    },
+    {
+     "name": "safetensors"
+    },
+    {
+     "name": "huggingface-hub"
+    },
+    {
+     "name": "onnxconverter-common"
+    },
+    {
+     "name": "skl2onnx"
+    },
+    {
+     "name": "joblib"
+    },
+    {
+     "name": "scikit-survival",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "interpret"
+    },
+    {
+     "name": "dowhy"
+    },
+    {
+     "name": "econml"
+    },
+    {
+     "name": "tpot",
+     "note": "slow",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "flaml"
+    },
+    {
+     "name": "river"
+    },
+    {
+     "name": "pyod"
+    },
+    {
+     "name": "kmodes"
+    },
+    {
+     "name": "scikit-image"
+    },
+    {
+     "name": "openml",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "sklearn-pandas"
+    },
+    {
+     "name": "yellowbrick"
+    }
+   ]
+  },
+  "image_vision": {
+   "description": "Images and computer vision without GPU.",
+   "packages": [
+    {
+     "name": "pillow"
+    },
+    {
+     "name": "opencv-python-headless"
+    },
+    {
+     "name": "scikit-image"
+    },
+    {
+     "name": "imageio"
+    },
+    {
+     "name": "imageio-ffmpeg"
+    },
+    {
+     "name": "pillow-heif"
+    },
+    {
+     "name": "pytesseract",
+     "note": "needs tesseract"
+    },
+    {
+     "name": "easyocr",
+     "note": "CPU torch",
+     "heavy": true
+    },
+    {
+     "name": "rapidocr",
+     "note": "ONNX OCR, no torch"
+    },
+    {
+     "name": "qrcode"
+    },
+    {
+     "name": "pyzbar",
+     "note": "needs libzbar"
+    },
+    {
+     "name": "python-barcode"
+    },
+    {
+     "name": "segno"
+    },
+    {
+     "name": "imagehash"
+    },
+    {
+     "name": "svglib"
+    },
+    {
+     "name": "colorthief"
+    },
+    {
+     "name": "exifread"
+    },
+    {
+     "name": "piexif"
+    },
+    {
+     "name": "albumentations"
+    },
+    {
+     "name": "fonttools"
+    },
+    {
+     "name": "tifffile"
+    },
+    {
+     "name": "pydicom"
+    },
+    {
+     "name": "numpy-stl"
+    },
+    {
+     "name": "trimesh"
+    },
+    {
+     "name": "rembg",
+     "note": "downloads model on first use"
+    },
+    {
+     "name": "pyvips",
+     "note": "needs libvips",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "wand",
+     "note": "needs ImageMagick"
+    },
+    {
+     "name": "mahotas"
+    },
+    {
+     "name": "blend-modes"
+    },
+    {
+     "name": "colour-science"
+    },
+    {
+     "name": "webcolors"
+    },
+    {
+     "name": "pypng"
+    },
+    {
+     "name": "python-resize-image"
+    },
+    {
+     "name": "pilkit"
+    },
+    {
+     "name": "vtracer"
+    },
+    {
+     "name": "filetype"
+    },
+    {
+     "name": "pdf2image"
+    },
+    {
+     "name": "ocrmypdf",
+     "note": "needs tesseract and ghostscript"
+    },
+    {
+     "name": "img2table"
+    },
+    {
+     "name": "deskew"
+    },
+    {
+     "name": "pylibdmtx"
+    },
+    {
+     "name": "zxing-cpp"
+    },
+    {
+     "name": "sewar"
+    },
+    {
+     "name": "pycocotools"
+    },
+    {
+     "name": "supervision"
+    },
+    {
+     "name": "ultralytics",
+     "note": "CPU torch, heavy"
+    }
+   ]
+  },
+  "audio_video": {
+   "description": "Audio and video processing, speech, subtitles.",
+   "packages": [
+    {
+     "name": "pydub",
+     "note": "needs ffmpeg"
+    },
+    {
+     "name": "soundfile",
+     "note": "needs libsndfile"
+    },
+    {
+     "name": "librosa"
+    },
+    {
+     "name": "audioread"
+    },
+    {
+     "name": "ffmpeg-python",
+     "note": "needs ffmpeg"
+    },
+    {
+     "name": "moviepy",
+     "note": "needs ffmpeg"
+    },
+    {
+     "name": "mutagen"
+    },
+    {
+     "name": "faster-whisper",
+     "note": "CPU speech to text"
+    },
+    {
+     "name": "vosk"
+    },
+    {
+     "name": "piper-tts",
+     "note": "local TTS"
+    },
+    {
+     "name": "edge-tts"
+    },
+    {
+     "name": "elevenlabs",
+     "note": "SDK; no key in the toolshed, so only for the side challenge"
+    },
+    {
+     "name": "gtts"
+    },
+    {
+     "name": "yt-dlp"
+    },
+    {
+     "name": "pedalboard"
+    },
+    {
+     "name": "resampy"
+    },
+    {
+     "name": "noisereduce"
+    },
+    {
+     "name": "srt",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pysrt",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "webvtt-py"
+    },
+    {
+     "name": "av",
+     "note": "PyAV"
+    },
+    {
+     "name": "pyttsx3",
+     "note": "needs espeak-ng"
+    },
+    {
+     "name": "pyloudnorm"
+    },
+    {
+     "name": "audiomentations"
+    },
+    {
+     "name": "music21"
+    },
+    {
+     "name": "pretty-midi"
+    },
+    {
+     "name": "mido"
+    },
+    {
+     "name": "scenedetect"
+    },
+    {
+     "name": "pytubefix"
+    },
+    {
+     "name": "openai-whisper",
+     "note": "CPU torch, heavy",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "speechrecognition"
+    },
+    {
+     "name": "pocketsphinx"
+    },
+    {
+     "name": "silero-vad",
+     "note": "CPU torch"
+    },
+    {
+     "name": "pycaption"
+    },
+    {
+     "name": "ffmpy"
+    },
+    {
+     "name": "imageio"
+    }
+   ]
+  },
+  "databases_storage": {
+   "description": "Embedded and remote databases, object stores, file systems.",
+   "packages": [
+    {
+     "name": "sqlalchemy"
+    },
+    {
+     "name": "alembic"
+    },
+    {
+     "name": "sqlite-utils"
+    },
+    {
+     "name": "duckdb"
+    },
+    {
+     "name": "psycopg[binary]"
+    },
+    {
+     "name": "pymysql"
+    },
+    {
+     "name": "redis"
+    },
+    {
+     "name": "pymongo"
+    },
+    {
+     "name": "tinydb"
+    },
+    {
+     "name": "peewee"
+    },
+    {
+     "name": "aiosqlite"
+    },
+    {
+     "name": "asyncpg"
+    },
+    {
+     "name": "lmdb"
+    },
+    {
+     "name": "h5py"
+    },
+    {
+     "name": "tables"
+    },
+    {
+     "name": "zarr"
+    },
+    {
+     "name": "netCDF4"
+    },
+    {
+     "name": "msgpack"
+    },
+    {
+     "name": "cbor2"
+    },
+    {
+     "name": "fastavro"
+    },
+    {
+     "name": "sqlmodel"
+    },
+    {
+     "name": "deltalake"
+    },
+    {
+     "name": "apsw"
+    },
+    {
+     "name": "boto3"
+    },
+    {
+     "name": "minio"
+    },
+    {
+     "name": "s3fs"
+    },
+    {
+     "name": "fsspec"
+    },
+    {
+     "name": "smart-open"
+    },
+    {
+     "name": "paramiko"
+    },
+    {
+     "name": "lancedb"
+    },
+    {
+     "name": "sqlalchemy-utils"
+    },
+    {
+     "name": "pony"
+    },
+    {
+     "name": "databases"
+    },
+    {
+     "name": "oracledb"
+    },
+    {
+     "name": "pyodbc",
+     "note": "needs unixODBC"
+    },
+    {
+     "name": "clickhouse-connect"
+    },
+    {
+     "name": "elasticsearch"
+    },
+    {
+     "name": "opensearch-py"
+    },
+    {
+     "name": "neo4j"
+    },
+    {
+     "name": "aiomysql"
+    },
+    {
+     "name": "motor"
+    },
+    {
+     "name": "weaviate-client"
+    },
+    {
+     "name": "chromadb"
+    },
+    {
+     "name": "sqlfluff"
+    },
+    {
+     "name": "dataset"
+    },
+    {
+     "name": "records",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "pyiceberg"
+    },
+    {
+     "name": "ibis-framework"
+    },
+    {
+     "name": "adbc-driver-sqlite"
+    },
+    {
+     "name": "gcsfs"
+    },
+    {
+     "name": "adlfs"
+    },
+    {
+     "name": "fabric"
+    },
+    {
+     "name": "scp"
+    },
+    {
+     "name": "ftputil"
+    },
+    {
+     "name": "webdavclient3"
+    },
+    {
+     "name": "pyarrow"
+    }
+   ]
+  },
+  "file_formats_archives": {
+   "description": "Parsing, converting and compressing.",
+   "packages": [
+    {
+     "name": "py7zr"
+    },
+    {
+     "name": "rarfile",
+     "note": "needs unrar"
+    },
+    {
+     "name": "zstandard"
+    },
+    {
+     "name": "lz4"
+    },
+    {
+     "name": "brotli"
+    },
+    {
+     "name": "python-magic",
+     "note": "needs libmagic"
+    },
+    {
+     "name": "xmltodict"
+    },
+    {
+     "name": "defusedxml"
+    },
+    {
+     "name": "toml"
+    },
+    {
+     "name": "ruamel.yaml"
+    },
+    {
+     "name": "json5"
+    },
+    {
+     "name": "jsonlines"
+    },
+    {
+     "name": "ijson"
+    },
+    {
+     "name": "hjson"
+    },
+    {
+     "name": "csvkit"
+    },
+    {
+     "name": "python-multipart"
+    },
+    {
+     "name": "avro"
+    },
+    {
+     "name": "ics"
+    },
+    {
+     "name": "icalendar"
+    },
+    {
+     "name": "vobject"
+    },
+    {
+     "name": "olefile"
+    },
+    {
+     "name": "msoffcrypto-tool"
+    },
+    {
+     "name": "extract-msg"
+    },
+    {
+     "name": "compressed-rtf"
+    },
+    {
+     "name": "eml-parser"
+    },
+    {
+     "name": "mail-parser"
+    },
+    {
+     "name": "patool",
+     "note": "needs system archivers"
+    },
+    {
+     "name": "pyzipper"
+    },
+    {
+     "name": "tarsafe"
+    },
+    {
+     "name": "xmlschema"
+    },
+    {
+     "name": "untangle"
+    },
+    {
+     "name": "dicttoxml"
+    },
+    {
+     "name": "yamllint"
+    },
+    {
+     "name": "jsonpickle"
+    },
+    {
+     "name": "orjson"
+    },
+    {
+     "name": "simplejson"
+    },
+    {
+     "name": "ujson"
+    },
+    {
+     "name": "rtoml"
+    },
+    {
+     "name": "tomli"
+    },
+    {
+     "name": "pyjson5"
+    },
+    {
+     "name": "python-bidi"
+    },
+    {
+     "name": "pygments"
+    },
+    {
+     "name": "chevron"
+    },
+    {
+     "name": "pystache"
+    },
+    {
+     "name": "mako"
+    },
+    {
+     "name": "vcfpy"
+    },
+    {
+     "name": "pytz"
+    },
+    {
+     "name": "fitparse",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "gpxpy"
+    },
+    {
+     "name": "exifread"
+    },
+    {
+     "name": "iptcinfo3"
+    },
+    {
+     "name": "pypdf"
+    },
+    {
+     "name": "pyreadr"
+    },
+    {
+     "name": "scipy"
+    },
+    {
+     "name": "ndjson"
+    },
+    {
+     "name": "bencode.py"
+    },
+    {
+     "name": "bitstring"
+    },
+    {
+     "name": "construct"
+    },
+    {
+     "name": "kaitaistruct"
+    },
+    {
+     "name": "pyelftools"
+    },
+    {
+     "name": "lief"
+    },
+    {
+     "name": "capstone",
+     "note": "defensive RE"
+    }
+   ]
+  },
+  "web_servers_apis": {
+   "description": "Serve, speak and describe HTTP, RPC and MCP.",
+   "packages": [
+    {
+     "name": "fastapi"
+    },
+    {
+     "name": "uvicorn"
+    },
+    {
+     "name": "starlette"
+    },
+    {
+     "name": "flask"
+    },
+    {
+     "name": "gunicorn"
+    },
+    {
+     "name": "mcp",
+     "note": "official Python MCP SDK"
+    },
+    {
+     "name": "fastmcp"
+    },
+    {
+     "name": "grpcio"
+    },
+    {
+     "name": "grpcio-tools"
+    },
+    {
+     "name": "graphql-core"
+    },
+    {
+     "name": "zeep",
+     "note": "SOAP"
+    },
+    {
+     "name": "openapi-spec-validator"
+    },
+    {
+     "name": "sse-starlette"
+    },
+    {
+     "name": "python-socketio"
+    },
+    {
+     "name": "pyjwt"
+    },
+    {
+     "name": "authlib"
+    },
+    {
+     "name": "itsdangerous"
+    },
+    {
+     "name": "prance"
+    },
+    {
+     "name": "httpx"
+    },
+    {
+     "name": "websockets"
+    },
+    {
+     "name": "jsonrpcserver",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "jsonrpcclient"
+    },
+    {
+     "name": "litestar"
+    },
+    {
+     "name": "quart"
+    },
+    {
+     "name": "hypercorn"
+    },
+    {
+     "name": "aiohttp"
+    },
+    {
+     "name": "werkzeug"
+    },
+    {
+     "name": "openapi-python-client"
+    },
+    {
+     "name": "datamodel-code-generator"
+    },
+    {
+     "name": "falcon"
+    },
+    {
+     "name": "bottle"
+    },
+    {
+     "name": "pydantic"
+    },
+    {
+     "name": "a2wsgi"
+    },
+    {
+     "name": "asgiref"
+    },
+    {
+     "name": "apispec"
+    },
+    {
+     "name": "marshmallow"
+    },
+    {
+     "name": "strawberry-graphql"
+    },
+    {
+     "name": "gql"
+    },
+    {
+     "name": "python-engineio"
+    },
+    {
+     "name": "h11"
+    },
+    {
+     "name": "wsproto"
+    },
+    {
+     "name": "uvloop"
+    },
+    {
+     "name": "httptools"
+    },
+    {
+     "name": "orjson"
+    },
+    {
+     "name": "jsonschema-specifications"
+    },
+    {
+     "name": "referencing"
+    }
+   ]
+  },
+  "llm_agent_tooling": {
+   "description": "Libraries for tools that handle LLM output. No keys in the toolshed, so these parse and prepare; they do not call.",
+   "packages": [
+    {
+     "name": "openai",
+     "note": "DeepSeek speaks this API"
+    },
+    {
+     "name": "anthropic"
+    },
+    {
+     "name": "tiktoken"
+    },
+    {
+     "name": "instructor"
+    },
+    {
+     "name": "jsonschema"
+    },
+    {
+     "name": "json-repair"
+    },
+    {
+     "name": "jsonpatch"
+    },
+    {
+     "name": "jsonref"
+    },
+    {
+     "name": "langchain-text-splitters"
+    },
+    {
+     "name": "pydantic-core"
+    },
+    {
+     "name": "partial-json-parser"
+    },
+    {
+     "name": "jinja2"
+    },
+    {
+     "name": "docstring-parser"
+    },
+    {
+     "name": "griffe"
+    },
+    {
+     "name": "tree-sitter"
+    },
+    {
+     "name": "tree-sitter-python"
+    },
+    {
+     "name": "tree-sitter-language-pack"
+    },
+    {
+     "name": "pygments"
+    },
+    {
+     "name": "litellm",
+     "heavy": true
+    },
+    {
+     "name": "typing-inspect"
+    },
+    {
+     "name": "semantic-text-splitter"
+    },
+    {
+     "name": "chonkie"
+    },
+    {
+     "name": "markdown-it-py"
+    },
+    {
+     "name": "mistune"
+    },
+    {
+     "name": "tokenizers"
+    },
+    {
+     "name": "genson"
+    },
+    {
+     "name": "jsonpath-ng"
+    },
+    {
+     "name": "simpleeval"
+    },
+    {
+     "name": "asteval"
+    },
+    {
+     "name": "restrictedpython"
+    },
+    {
+     "name": "jmespath"
+    }
+   ]
+  },
+  "security_crypto": {
+   "description": "Crypto and defensive security. Use only with authorization.",
+   "packages": [
+    {
+     "name": "cryptography"
+    },
+    {
+     "name": "pynacl"
+    },
+    {
+     "name": "bcrypt"
+    },
+    {
+     "name": "argon2-cffi"
+    },
+    {
+     "name": "passlib"
+    },
+    {
+     "name": "pyjwt"
+    },
+    {
+     "name": "pyotp"
+    },
+    {
+     "name": "hashids"
+    },
+    {
+     "name": "python-gnupg",
+     "note": "needs gpg"
+    },
+    {
+     "name": "pyopenssl"
+    },
+    {
+     "name": "bandit"
+    },
+    {
+     "name": "pip-audit"
+    },
+    {
+     "name": "detect-secrets"
+    },
+    {
+     "name": "zxcvbn"
+    },
+    {
+     "name": "scapy"
+    },
+    {
+     "name": "dnspython"
+    },
+    {
+     "name": "netaddr"
+    },
+    {
+     "name": "ipwhois"
+    },
+    {
+     "name": "pefile"
+    },
+    {
+     "name": "yara-python"
+    },
+    {
+     "name": "oletools"
+    },
+    {
+     "name": "semgrep",
+     "heavy": true
+    },
+    {
+     "name": "safety"
+    },
+    {
+     "name": "cyclonedx-bom"
+    },
+    {
+     "name": "asn1crypto"
+    },
+    {
+     "name": "pycryptodome"
+    },
+    {
+     "name": "pycryptodomex"
+    },
+    {
+     "name": "keyring"
+    },
+    {
+     "name": "itsdangerous"
+    },
+    {
+     "name": "trustme"
+    },
+    {
+     "name": "pem"
+    },
+    {
+     "name": "ecdsa"
+    },
+    {
+     "name": "rsa"
+    },
+    {
+     "name": "pyhanko"
+    },
+    {
+     "name": "pikepdf"
+    },
+    {
+     "name": "cffi"
+    },
+    {
+     "name": "python-nmap",
+     "note": "needs nmap",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pyshark",
+     "note": "needs tshark"
+    },
+    {
+     "name": "dpkt"
+    },
+    {
+     "name": "maxminddb"
+    },
+    {
+     "name": "geoip2"
+    },
+    {
+     "name": "ua-parser"
+    },
+    {
+     "name": "sslyze",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "publicsuffix2"
+    },
+    {
+     "name": "tldextract"
+    },
+    {
+     "name": "email-validator"
+    },
+    {
+     "name": "phonenumbers"
+    }
+   ]
+  },
+  "dev_tooling_quality": {
+   "description": "Lint, type check, profile and analyse Python code. Useful for the reviewer and the generator.",
+   "packages": [
+    {
+     "name": "ruff"
+    },
+    {
+     "name": "mypy"
+    },
+    {
+     "name": "pyright"
+    },
+    {
+     "name": "black"
+    },
+    {
+     "name": "isort"
+    },
+    {
+     "name": "pylint"
+    },
+    {
+     "name": "flake8"
+    },
+    {
+     "name": "radon"
+    },
+    {
+     "name": "vulture"
+    },
+    {
+     "name": "nox"
+    },
+    {
+     "name": "tox"
+    },
+    {
+     "name": "typeguard"
+    },
+    {
+     "name": "beartype"
+    },
+    {
+     "name": "icontract"
+    },
+    {
+     "name": "deal"
+    },
+    {
+     "name": "mutmut"
+    },
+    {
+     "name": "jedi"
+    },
+    {
+     "name": "libcst"
+    },
+    {
+     "name": "astroid"
+    },
+    {
+     "name": "rope"
+    },
+    {
+     "name": "pydeps"
+    },
+    {
+     "name": "import-linter"
+    },
+    {
+     "name": "pip-tools"
+    },
+    {
+     "name": "pipdeptree"
+    },
+    {
+     "name": "uv"
+    },
+    {
+     "name": "build"
+    },
+    {
+     "name": "hatchling"
+    },
+    {
+     "name": "setuptools"
+    },
+    {
+     "name": "wheel"
+    },
+    {
+     "name": "snoop"
+    },
+    {
+     "name": "icecream"
+    },
+    {
+     "name": "pyinstrument"
+    },
+    {
+     "name": "py-spy"
+    },
+    {
+     "name": "memray"
+    },
+    {
+     "name": "line-profiler"
+    },
+    {
+     "name": "pydocstyle"
+    },
+    {
+     "name": "pyflakes"
+    },
+    {
+     "name": "pycodestyle"
+    },
+    {
+     "name": "autoflake"
+    },
+    {
+     "name": "pyupgrade"
+    },
+    {
+     "name": "bandit"
+    },
+    {
+     "name": "deptry"
+    },
+    {
+     "name": "pip"
+    },
+    {
+     "name": "poetry-core"
+    },
+    {
+     "name": "flit-core"
+    },
+    {
+     "name": "cython",
+     "note": "needs gcc"
+    },
+    {
+     "name": "cffi"
+    },
+    {
+     "name": "pybind11"
+    },
+    {
+     "name": "numpy"
+    },
+    {
+     "name": "sphinx"
+    },
+    {
+     "name": "mkdocs"
+    },
+    {
+     "name": "mkdocs-material"
+    },
+    {
+     "name": "pdoc"
+    },
+    {
+     "name": "docutils"
+    },
+    {
+     "name": "gitpython"
+    },
+    {
+     "name": "dulwich"
+    },
+    {
+     "name": "pre-commit"
+    },
+    {
+     "name": "commitizen"
+    },
+    {
+     "name": "towncrier"
+    },
+    {
+     "name": "pytest-benchmark"
+    },
+    {
+     "name": "scalene"
+    },
+    {
+     "name": "viztracer"
+    },
+    {
+     "name": "monkeytype"
+    },
+    {
+     "name": "refurb"
+    },
+    {
+     "name": "perflint"
+    },
+    {
+     "name": "xenon"
+    },
+    {
+     "name": "lizard"
+    },
+    {
+     "name": "coverage"
+    },
+    {
+     "name": "interrogate"
+    },
+    {
+     "name": "docformatter"
+    },
+    {
+     "name": "yapf"
+    },
+    {
+     "name": "autopep8"
+    },
+    {
+     "name": "blacken-docs"
+    },
+    {
+     "name": "nbformat"
+    },
+    {
+     "name": "nbconvert"
+    },
+    {
+     "name": "papermill"
+    },
+    {
+     "name": "jupytext"
+    },
+    {
+     "name": "ipykernel"
+    },
+    {
+     "name": "ipython"
+    }
+   ]
+  },
+  "geospatial_science": {
+   "description": "Maps, geodata, astronomy, chemistry, biology, units.",
+   "packages": [
+    {
+     "name": "shapely"
+    },
+    {
+     "name": "geopandas"
+    },
+    {
+     "name": "pyproj"
+    },
+    {
+     "name": "fiona"
+    },
+    {
+     "name": "rasterio"
+    },
+    {
+     "name": "geopy"
+    },
+    {
+     "name": "h3"
+    },
+    {
+     "name": "osmnx"
+    },
+    {
+     "name": "pyshp"
+    },
+    {
+     "name": "geojson"
+    },
+    {
+     "name": "haversine"
+    },
+    {
+     "name": "astropy"
+    },
+    {
+     "name": "biopython"
+    },
+    {
+     "name": "rdkit"
+    },
+    {
+     "name": "ase"
+    },
+    {
+     "name": "periodictable"
+    },
+    {
+     "name": "skyfield"
+    },
+    {
+     "name": "ephem"
+    },
+    {
+     "name": "astral"
+    },
+    {
+     "name": "timezonefinder"
+    },
+    {
+     "name": "reverse-geocoder",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pycountry"
+    },
+    {
+     "name": "country-converter"
+    },
+    {
+     "name": "geographiclib"
+    },
+    {
+     "name": "rtree"
+    },
+    {
+     "name": "cartopy",
+     "note": "needs geos"
+    },
+    {
+     "name": "pint"
+    },
+    {
+     "name": "contextily"
+    },
+    {
+     "name": "mapclassify"
+    },
+    {
+     "name": "xyzservices"
+    },
+    {
+     "name": "pyogrio"
+    },
+    {
+     "name": "geoalchemy2"
+    },
+    {
+     "name": "overpy"
+    },
+    {
+     "name": "pymap3d"
+    },
+    {
+     "name": "utm"
+    },
+    {
+     "name": "mgrs"
+    },
+    {
+     "name": "geohash2",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "polyline"
+    },
+    {
+     "name": "mercantile"
+    },
+    {
+     "name": "pystac"
+    },
+    {
+     "name": "pystac-client"
+    },
+    {
+     "name": "rioxarray"
+    },
+    {
+     "name": "netcdf4"
+    },
+    {
+     "name": "cfgrib",
+     "note": "needs eccodes"
+    },
+    {
+     "name": "metpy"
+    },
+    {
+     "name": "pvlib"
+    },
+    {
+     "name": "openmeteo-requests"
+    },
+    {
+     "name": "meteostat"
+    },
+    {
+     "name": "pymatgen",
+     "heavy": true
+    },
+    {
+     "name": "mendeleev"
+    },
+    {
+     "name": "chempy",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "openbabel-wheel"
+    },
+    {
+     "name": "selfies"
+    },
+    {
+     "name": "dendropy"
+    },
+    {
+     "name": "pronto"
+    },
+    {
+     "name": "scanpy",
+     "heavy": true
+    },
+    {
+     "name": "anndata"
+    }
+   ]
+  },
+  "finance_business": {
+   "description": "Quant, dates, locales, business identifiers.",
+   "packages": [
+    {
+     "name": "yfinance"
+    },
+    {
+     "name": "ta",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "quantlib"
+    },
+    {
+     "name": "numpy-financial"
+    },
+    {
+     "name": "forex-python"
+    },
+    {
+     "name": "empyrical-reloaded"
+    },
+    {
+     "name": "riskfolio-lib"
+    },
+    {
+     "name": "ccxt"
+    },
+    {
+     "name": "fredapi"
+    },
+    {
+     "name": "pandas-datareader"
+    },
+    {
+     "name": "schwifty"
+    },
+    {
+     "name": "python-stdnum"
+    },
+    {
+     "name": "faker"
+    },
+    {
+     "name": "invoice2data",
+     "note": "needs pdftotext"
+    },
+    {
+     "name": "holidays"
+    },
+    {
+     "name": "workalendar"
+    },
+    {
+     "name": "pendulum"
+    },
+    {
+     "name": "arrow"
+    },
+    {
+     "name": "whenever"
+    },
+    {
+     "name": "tzlocal"
+    },
+    {
+     "name": "croniter"
+    },
+    {
+     "name": "python-crontab"
+    },
+    {
+     "name": "apscheduler"
+    },
+    {
+     "name": "schedule"
+    },
+    {
+     "name": "babel"
+    },
+    {
+     "name": "pycountry"
+    },
+    {
+     "name": "currencyconverter"
+    },
+    {
+     "name": "py-moneyed"
+    },
+    {
+     "name": "backtesting"
+    },
+    {
+     "name": "pyfolio-reloaded"
+    },
+    {
+     "name": "quantstats"
+    },
+    {
+     "name": "arch"
+    },
+    {
+     "name": "stockstats"
+    },
+    {
+     "name": "pyxirr"
+    },
+    {
+     "name": "fuzzywuzzy"
+    },
+    {
+     "name": "phonenumbers"
+    },
+    {
+     "name": "python-barcode"
+    },
+    {
+     "name": "qrcode"
+    },
+    {
+     "name": "ofxparse",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "ofxtools"
+    },
+    {
+     "name": "beancount"
+    }
+   ]
+  },
+  "math_optimization": {
+   "description": "Solvers, graphs, symbolic math, simulation.",
+   "packages": [
+    {
+     "name": "ortools"
+    },
+    {
+     "name": "pulp"
+    },
+    {
+     "name": "cvxpy"
+    },
+    {
+     "name": "z3-solver"
+    },
+    {
+     "name": "scipy"
+    },
+    {
+     "name": "sympy"
+    },
+    {
+     "name": "gmpy2"
+    },
+    {
+     "name": "mpmath"
+    },
+    {
+     "name": "simpy"
+    },
+    {
+     "name": "python-sat"
+    },
+    {
+     "name": "networkx"
+    },
+    {
+     "name": "igraph"
+    },
+    {
+     "name": "nlopt"
+    },
+    {
+     "name": "pyomo"
+    },
+    {
+     "name": "highspy"
+    },
+    {
+     "name": "cvxopt"
+    },
+    {
+     "name": "python-constraint",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pymoo"
+    },
+    {
+     "name": "deap"
+    },
+    {
+     "name": "pygad"
+    },
+    {
+     "name": "cma"
+    },
+    {
+     "name": "bayesian-optimization"
+    },
+    {
+     "name": "hyperopt"
+    },
+    {
+     "name": "pyswarms"
+    },
+    {
+     "name": "gekko"
+    },
+    {
+     "name": "casadi"
+    },
+    {
+     "name": "jax",
+     "note": "CPU wheel only"
+    },
+    {
+     "name": "autograd"
+    },
+    {
+     "name": "pymc",
+     "heavy": true
+    },
+    {
+     "name": "arviz"
+    },
+    {
+     "name": "emcee"
+    },
+    {
+     "name": "corner"
+    },
+    {
+     "name": "lmfit"
+    },
+    {
+     "name": "uncertainties"
+    },
+    {
+     "name": "galois"
+    },
+    {
+     "name": "pycosat",
+     "source_build": "compiled (needs build-essential)"
+    },
+    {
+     "name": "pysmt"
+    },
+    {
+     "name": "clingo"
+    },
+    {
+     "name": "rdflib"
+    },
+    {
+     "name": "pyvis"
+    },
+    {
+     "name": "leidenalg"
+    },
+    {
+     "name": "pygraphviz",
+     "note": "needs graphviz dev"
+    },
+    {
+     "name": "scikit-fuzzy"
+    },
+    {
+     "name": "control"
+    },
+    {
+     "name": "pyquaternion"
+    },
+    {
+     "name": "transforms3d"
+    },
+    {
+     "name": "pymunk"
+    },
+    {
+     "name": "shapely"
+    },
+    {
+     "name": "sortedcontainers"
+    },
+    {
+     "name": "bidict"
+    },
+    {
+     "name": "boltons"
+    },
+    {
+     "name": "toolz"
+    },
+    {
+     "name": "cytoolz"
+    },
+    {
+     "name": "returns"
+    },
+    {
+     "name": "funcy"
+    },
+    {
+     "name": "pyrsistent"
+    },
+    {
+     "name": "ordered-set"
+    },
+    {
+     "name": "python-box"
+    },
+    {
+     "name": "deepdiff"
+    },
+    {
+     "name": "dictdiffer"
+    },
+    {
+     "name": "jsondiff"
+    },
+    {
+     "name": "datasketch"
+    },
+    {
+     "name": "bitarray"
+    },
+    {
+     "name": "intervaltree"
+    },
+    {
+     "name": "portion"
+    },
+    {
+     "name": "glom"
+    },
+    {
+     "name": "python-benedict"
+    },
+    {
+     "name": "cattrs"
+    },
+    {
+     "name": "dataclasses-json"
+    },
+    {
+     "name": "cerberus"
+    },
+    {
+     "name": "pyparsing"
+    },
+    {
+     "name": "lark"
+    },
+    {
+     "name": "parse"
+    },
+    {
+     "name": "pydash"
+    },
+    {
+     "name": "shortuuid"
+    },
+    {
+     "name": "ulid-py"
+    },
+    {
+     "name": "nanoid"
+    },
+    {
+     "name": "uuid6"
+    },
+    {
+     "name": "prettytable"
+    },
+    {
+     "name": "texttable"
+    },
+    {
+     "name": "pyfiglet"
+    },
+    {
+     "name": "colorama"
+    }
+   ]
+  },
+  "automation_cli": {
+   "description": "Scheduling, shells, terminals, files, mail, calendars.",
+   "packages": [
+    {
+     "name": "watchdog"
+    },
+    {
+     "name": "sh"
+    },
+    {
+     "name": "pexpect"
+    },
+    {
+     "name": "ptyprocess"
+    },
+    {
+     "name": "plumbum"
+    },
+    {
+     "name": "invoke"
+    },
+    {
+     "name": "textual"
+    },
+    {
+     "name": "prompt-toolkit"
+    },
+    {
+     "name": "questionary"
+    },
+    {
+     "name": "humanfriendly"
+    },
+    {
+     "name": "cookiecutter"
+    },
+    {
+     "name": "copier"
+    },
+    {
+     "name": "pygments"
+    },
+    {
+     "name": "imap-tools"
+    },
+    {
+     "name": "aiosmtplib"
+    },
+    {
+     "name": "exchangelib"
+    },
+    {
+     "name": "caldav"
+    },
+    {
+     "name": "ics"
+    },
+    {
+     "name": "icalendar"
+    },
+    {
+     "name": "yagmail"
+    },
+    {
+     "name": "pyyaml"
+    },
+    {
+     "name": "tabulate"
+    },
+    {
+     "name": "arrow"
+    },
+    {
+     "name": "pendulum"
+    },
+    {
+     "name": "jinja2"
+    },
+    {
+     "name": "docopt-ng"
+    },
+    {
+     "name": "fire"
+    },
+    {
+     "name": "cyclopts"
+    },
+    {
+     "name": "argcomplete"
+    },
+    {
+     "name": "configargparse"
+    },
+    {
+     "name": "dynaconf"
+    },
+    {
+     "name": "omegaconf"
+    },
+    {
+     "name": "environs"
+    },
+    {
+     "name": "python-decouple"
+    },
+    {
+     "name": "platformdirs"
+    },
+    {
+     "name": "send2trash"
+    },
+    {
+     "name": "pathvalidate"
+    },
+    {
+     "name": "natsort"
+    },
+    {
+     "name": "tenacity"
+    },
+    {
+     "name": "apprise",
+     "note": "notifications"
+    },
+    {
+     "name": "python-jose"
+    },
+    {
+     "name": "getmac"
+    },
+    {
+     "name": "speedtest-cli"
+    },
+    {
+     "name": "kubernetes"
+    },
+    {
+     "name": "ansible-core"
+    },
+    {
+     "name": "pyinfra"
+    },
+    {
+     "name": "testinfra"
+    },
+    {
+     "name": "psutil"
+    },
+    {
+     "name": "distro"
+    },
+    {
+     "name": "py-cpuinfo"
+    },
+    {
+     "name": "schedule"
+    },
+    {
+     "name": "huey"
+    }
+   ]
+  },
+  "data_generation_misc": {
+   "description": "Synthetic data, names, readable output, odds and ends.",
+   "packages": [
+    {
+     "name": "mimesis"
+    },
+    {
+     "name": "faker"
+    },
+    {
+     "name": "hypothesis"
+    },
+    {
+     "name": "python-slugify"
+    },
+    {
+     "name": "inflect"
+    },
+    {
+     "name": "num2words"
+    },
+    {
+     "name": "pyfiglet"
+    },
+    {
+     "name": "emoji"
+    },
+    {
+     "name": "pycountry"
+    },
+    {
+     "name": "country-converter"
+    },
+    {
+     "name": "unidecode"
+    },
+    {
+     "name": "humanize"
+    },
+    {
+     "name": "qrcode"
+    },
+    {
+     "name": "segno"
+    },
+    {
+     "name": "tabulate"
+    },
+    {
+     "name": "rich"
+    },
+    {
+     "name": "wcwidth"
+    },
+    {
+     "name": "python-bidi"
+    },
+    {
+     "name": "arabic-reshaper"
+    },
+    {
+     "name": "jieba",
+     "source_build": "pure-Python sdist"
+    },
+    {
+     "name": "pypinyin"
+    },
+    {
+     "name": "pykakasi"
+    },
+    {
+     "name": "pyphen"
+    },
+    {
+     "name": "syllables"
+    },
+    {
+     "name": "cmudict"
+    },
+    {
+     "name": "g2p-en",
+     "source_build": "pure-Python sdist or sdist dependency; builds on install"
+    },
+    {
+     "name": "phonemizer",
+     "note": "needs espeak-ng"
+    },
+    {
+     "name": "pronouncing"
+    },
+    {
+     "name": "nameparser"
+    },
+    {
+     "name": "usaddress"
+    },
+    {
+     "name": "pyap"
+    },
+    {
+     "name": "geonamescache"
+    },
+    {
+     "name": "countryinfo"
+    },
+    {
+     "name": "pytimeparse"
+    },
+    {
+     "name": "dateparser"
+    },
+    {
+     "name": "humanfriendly"
+    },
+    {
+     "name": "python-dateutil"
+    }
+   ]
+  }
+ },
+ "system": {
+  "description": "Debian 13 packages (apt). Support for the Python packages; tools stay Python only. The forge may add more, which makes a new image tag.",
+  "packages": [
+   {
+    "name": "build-essential",
+    "note": "compile sdists"
+   },
+   {
+    "name": "pkg-config"
+   },
+   {
+    "name": "libffi-dev"
+   },
+   {
+    "name": "libssl-dev"
+   },
+   {
+    "name": "git"
+   },
+   {
+    "name": "curl"
+   },
+   {
+    "name": "ca-certificates"
+   },
+   {
+    "name": "jq"
+   },
+   {
+    "name": "sqlite3"
+   },
+   {
+    "name": "unzip"
+   },
+   {
+    "name": "zip"
+   },
+   {
+    "name": "p7zip-full"
+   },
+   {
+    "name": "xz-utils"
+   },
+   {
+    "name": "zstd"
+   },
+   {
+    "name": "poppler-utils",
+    "note": "pdftotext, pdftoppm; pdf2image"
+   },
+   {
+    "name": "tesseract-ocr"
+   },
+   {
+    "name": "tesseract-ocr-eng"
+   },
+   {
+    "name": "tesseract-ocr-ces",
+    "note": "Czech"
+   },
+   {
+    "name": "tesseract-ocr-deu"
+   },
+   {
+    "name": "tesseract-ocr-slk"
+   },
+   {
+    "name": "tesseract-ocr-osd"
+   },
+   {
+    "name": "ghostscript",
+    "note": "camelot, ocrmypdf"
+   },
+   {
+    "name": "qpdf",
+    "note": "pikepdf"
+   },
+   {
+    "name": "unpaper",
+    "note": "ocrmypdf"
+   },
+   {
+    "name": "pandoc"
+   },
+   {
+    "name": "typst"
+   },
+   {
+    "name": "ffmpeg"
+   },
+   {
+    "name": "libsndfile1"
+   },
+   {
+    "name": "espeak-ng"
+   },
+   {
+    "name": "libzbar0"
+   },
+   {
+    "name": "libmagic1"
+   },
+   {
+    "name": "libvips42"
+   },
+   {
+    "name": "imagemagick"
+   },
+   {
+    "name": "exiftool",
+    "note": "libimage-exiftool-perl"
+   },
+   {
+    "name": "mediainfo"
+   },
+   {
+    "name": "libpango-1.0-0",
+    "note": "weasyprint"
+   },
+   {
+    "name": "libpangoft2-1.0-0",
+    "note": "weasyprint"
+   },
+   {
+    "name": "libcairo2",
+    "note": "cairosvg"
+   },
+   {
+    "name": "libgdk-pixbuf-2.0-0"
+   },
+   {
+    "name": "graphviz"
+   },
+   {
+    "name": "libgeos-c1v5"
+   },
+   {
+    "name": "libgdal-dev",
+    "note": "only if rasterio or fiona wheels fail"
+   },
+   {
+    "name": "libproj-dev",
+    "note": "only if pyproj wheel fails"
+   },
+   {
+    "name": "fonts-dejavu"
+   },
+   {
+    "name": "fonts-liberation"
+   },
+   {
+    "name": "fonts-noto-core"
+   },
+   {
+    "name": "fonts-noto-color-emoji"
+   },
+   {
+    "name": "fonts-noto-cjk",
+    "note": "large"
+   },
+   {
+    "name": "fonts-roboto"
+   },
+   {
+    "name": "fonts-open-sans"
+   },
+   {
+    "name": "fonts-firacode"
+   },
+   {
+    "name": "libreoffice-writer-nogui",
+    "note": "docx to pdf; large",
+    "heavy": true
+   },
+   {
+    "name": "libreoffice-calc-nogui",
+    "note": "xlsx recalculation; large",
+    "heavy": true
+   },
+   {
+    "name": "libreoffice-impress-nogui",
+    "note": "pptx to pdf; large",
+    "heavy": true
+   },
+   {
+    "name": "wkhtmltopdf",
+    "note": "pdfkit"
+   },
+   {
+    "name": "chromium",
+    "note": "Playwright fallback; large",
+    "heavy": true
+   },
+   {
+    "name": "texlive-latex-base",
+    "heavy": true
+   },
+   {
+    "name": "texlive-latex-recommended",
+    "heavy": true
+   },
+   {
+    "name": "texlive-fonts-recommended",
+    "heavy": true
+   },
+   {
+    "name": "latexmk",
+    "heavy": true
+   },
+   {
+    "name": "unixodbc",
+    "note": "pyodbc"
+   },
+   {
+    "name": "gnupg",
+    "note": "python-gnupg"
+   },
+   {
+    "name": "nmap",
+    "note": "python-nmap; defensive only"
+   },
+   {
+    "name": "tshark",
+    "note": "pyshark; defensive only"
+   },
+   {
+    "name": "openssh-client"
+   },
+   {
+    "name": "rsync"
+   },
+   {
+    "name": "tree"
+   },
+   {
+    "name": "file"
+   },
+   {
+    "name": "bc"
+   },
+   {
+    "name": "dnsutils"
+   },
+   {
+    "name": "iputils-ping"
+   },
+   {
+    "name": "netcat-openbsd"
+   },
+   {
+    "name": "sox",
+    "note": "audio"
+   },
+   {
+    "name": "lame"
+   },
+   {
+    "name": "opus-tools"
+   },
+   {
+    "name": "flac"
+   },
+   {
+    "name": "libeccodes0",
+    "note": "cfgrib"
+   },
+   {
+    "name": "unrar-free",
+    "note": "rarfile"
+   }
+  ]
+ }
+}

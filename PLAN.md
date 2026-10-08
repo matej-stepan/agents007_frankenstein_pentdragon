@@ -32,8 +32,25 @@ User decisions:
 Repo facts:
 - The key is in `.env` as `OAI_COMPATIBLE_KEY`.
 - Pi is installed at `/usr/local/bin/pi`.
-- This box is the dev machine (100.96.0.1). podman and uv are not installed yet. Host apt: `podman passt uidmap`; uv comes from its official installer.
+- This box is the dev machine (100.96.0.1). Host apt: `podman passt uidmap`; uv comes from its official installer.
 - `toolshed/packages.json` has 908 packages in 21 categories, without per-package descriptions.
+
+## Preflight findings (spike, 2026-10-08)
+- **Local files:** the operator copies `.env` and `toolshed/packages.json` into this directory. `.env` is in `.gitignore`. If a file is missing, ask the operator. Do not read `../Taltempla/` or another sibling directory.
+- **Host is ready:** uv 0.12.24 (`~/.local/bin`), rootless podman 5.4.2 (netavark, pasta), subuid `ak:100000:65536`, setpriv, prlimit.
+- **Images pull and are cached:** `docker.io/library/python:3.13-slim`, `ghcr.io/astral-sh/uv:0.12.24`. Pin the uv tag to 0.12.24, the same as the host.
+- **Inside the container:** `setpriv --reuid/--regid --clear-groups --no-new-privs` works. `prlimit --as --nproc` works. PyPI is reachable (open net).
+- **⭐ Container → meter, answered:**
+  - `host.containers.internal` is 169.254.1.2. It reaches a host listener only on `0.0.0.0`, not on `127.0.0.1`. A `0.0.0.0` bind puts the meter on the LAN.
+  - A unix socket in a bind-mounted directory works. With the directory at 0700 and the socket at 0600, container root (shedd) connects and the `tool` user gets EACCES.
+  - **Proposal:** the meter listens on `.frank/run/meter.sock`, which is mounted at `/run/meter`. This replaces `:7701`. Tools never reach the meter; `shed.llm` goes through shedd.
+- **⭐ setpriv in rootless podman, answered:** it works (see above). Record both answers as decisions with D32+.
+- **DeepSeek (verified):**
+  - The balance is USD 6.06, which is below the $20 total cap. The balance is the real provider stop.
+  - `/models` lists `deepseek-flash` (V4.1-Flash) and `deepseek-v4-pro`. The effort levels are `low|high|max`.
+  - A tool call with thinking on (the default) and `reasoning_effort:"low"` returns `content:""`, `reasoning_content`, `tool_calls[{id, type, function{name, arguments: JSON string}}]` and `finish_reason:"tool_calls"`.
+  - `usage` has `prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`, `completion_tokens` and `completion_tokens_details.reasoning_tokens`.
+- **Git:** `origin` is `github.com:matej-stepan/agents007_frankenstein_pentdragon`.
 
 ## Architecture
 ```

@@ -1,0 +1,38 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+devmachine_ip
+*.pem
+*.key
+
+# Archives
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# Dependencies / build output
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+target/
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+*~
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code local settings
+.claude/settings.local.json

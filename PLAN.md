@@ -32,7 +32,7 @@ User decisions:
 Repo facts:
 - The key is in `.env` as `OAI_COMPATIBLE_KEY`.
 - Pi is installed at `/usr/local/bin/pi`.
-- podman and uv are not installed here. The dev machine is `ak@100.96.0.1`; `make deps` installs podman, passt and uidmap there.
+- This box is the dev machine (100.96.0.1). podman and uv are not installed yet. Host apt: `podman passt uidmap`; uv comes from its official installer.
 - `toolshed/packages.json` has 908 packages in 21 categories, without per-package descriptions.
 
 ## Architecture
@@ -91,12 +91,56 @@ Pi (D1 → the Python CLI), gap pass (D6), triage (D30), stack pass (D5, merged 
 ## Files
 - **Code:**
   - `cli/taltempla/{main.py,loop.py,llm.py,meter.py,ledger.sql,prices.json,prompt.md,shed_client.py,gate.py,approvals.py,ws_tools.py,commands.py,ui.py}`
-  - `cli/pyproject.toml` (deps: rich, prompt_toolkit; run with `uv run`)
   - `toolshed/{Containerfile,tiers.py,server/shed/{app,db,schema.sql,lookup,runner,chain,llm,pkgindex}.py,server/shed/chef/{orchestrator.py,static_check.py,prompts/*.md},sdk/shed_sdk/{main,testing}.py}`
-  - `contract/`, `Makefile`, `spikes/`, `tests/`
-- **Python 3.13 everywhere.** B is stdlib only. A uses rich and prompt_toolkit. B's `llm.py` and A's `llm.py` share one client file (copied into the image).
-- **Image:** tier A of packages.json (about 200 light packages, from `tiers.py`). Others are installed through `request_package`, catalog names only. The pkg index is built at image build time from names, notes, categories and the installed metadata summary.
-- **Makefile targets:** deps, image, toolshed-up/-down/-reset/-shell/-logs, run, shed, cost, rollback, test, spike-shed, demo-reset.
+  - `pyproject.toml` + `uv.lock` (root), `contract/`, `Makefile`, `spikes/`, `tests/`
+- **Python 3.13 everywhere.** B's server is stdlib only. A uses rich and prompt_toolkit. A and B share one LLM client file, which is copied into the image.
+
+## Package management: uv for the whole project
+- **uv is the only Python package manager**, on the host and in the image. Do not use pip, venv or apt Python packages.
+- **One uv workspace at the repo root:**
+  - `pyproject.toml` pins `requires-python = "==3.13.*"` and lists the members `cli` and `toolshed`.
+  - One `uv.lock` is committed.
+  - Dev dependencies (`pytest`, `ruff`) are in a `dev` group.
+- **Host:** `uv sync` makes `.venv`. Every command runs as `uv run …`.
+- **Image:**
+  - The Containerfile copies the `uv` binary from `ghcr.io/astral-sh/uv` with a pinned tag.
+  - It installs the server and SDK with `uv sync --frozen --no-dev`.
+  - It installs tier A from `tiers.py` with `uv pip install --system`.
+  - `request_package` uses `uv pip install`, for catalog names only.
+- **Host apt packages are system packages only:** `podman`, `passt`, `uidmap`. uv comes from the official installer, user level.
+
+## Makefile: the single entry point
+The Makefile is integral. Every task goes through it, and the operator never needs another command.
+- **Default target `make help`** prints every target with a one-line description, taken from `## ` comments.
+- **Preflight:** `make doctor` checks:
+  - uv, podman and rootless mode;
+  - the subuid entry;
+  - that `.env` has the key;
+  - that the image exists;
+  - that the toolshed answers `health`.
+  
+  Each failed check prints the fix. `make run` calls `doctor` first.
+- **Idempotent targets:** `toolshed-up` builds the image if it is missing. `run` starts the toolshed if it is down.
+- **Variables:** `MODEL`, `CAP_RUN`, `CAP_SESSION` and `GATE` can be overridden on the command line, e.g. `make run CAP_RUN=1`.
+
+| Target | Function |
+|---|---|
+| `help` | List the targets (default) |
+| `deps` | Print the apt line for the system packages; install uv if missing; `uv sync` |
+| `doctor` | Run the preflight checks |
+| `image` | Build the toolshed image (tiers + uv inside) |
+| `toolshed-up` / `-down` / `-reset` / `-shell` / `-logs` | Start, stop (keep the data), delete all data, open a shell as the tool user, show the logs |
+| `run` | Start the CLI (`uv run taltempla`) |
+| `shed` | Print the registry (before the run, for the demo) |
+| `cost` | Print the ledger by run, role and tool |
+| `rollback T= V=` | Roll back one tool |
+| `history T=` | Print the version and event history of a tool |
+| `test` | `uv run pytest` (unit + contract tests) |
+| `lint` / `fmt` | `uv run ruff check` / `ruff format` |
+| `lock` | `uv lock` |
+| `spike-shed` | The container networking and setpriv spike |
+| `demo-reset` | Back up and clear the DB and ledger for a clean recording |
+| `clean` | Remove `.venv`, caches and build output (keeps the data) |
 - **Docs:**
   - ARCHITECTURE.md gets D32–D44 (the Python CLI replaces D1/Pi; fixed toolset/no MCP; two grades; FTS lookup + lookup_id gap rule; the Chef in B; the meter + grants; chaining scope; approvals; Python everywhere; flash reviewer; large outputs to files; package tiers + pkg_search; open net). The old rows become "Replaced by Dxx". Rewrite §2–§11, §15 and §16 in STE.
   - OPEN_QUESTIONS: remove the answered questions. Add ⭐ container→meter networking, ⭐ setpriv in rootless podman, and the lookup thresholds.

@@ -1,4 +1,4 @@
-# Frankenstein architecture
+# Taltempla architecture
 
 Status: draft v6, 2026-10-08. Language: ASD-STE100. This is a plan, not an implementation.
 Scope: a prototype in 9 hours (§16). Brief: [SUBJECT.md](SUBJECT.md). Open questions: [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md). Raw research: [research/](research/).

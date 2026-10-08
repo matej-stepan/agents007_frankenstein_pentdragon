@@ -105,7 +105,7 @@ Pi brief for the CLI module. Source: `earendil-works/pi` @6fb2e78 (2026-10-08), 
 
 - **Extension injection:** the built-in `write`/`edit` tools can write `~/.pi/agent/extensions/*.ts` or `.pi/extensions`, and Pi loads those as code on the next start. `-ne` plus P4 closes this.
 - **Key leak:** the built-in `read` can read `/proc/self/environ` and `auth.json`, so the key can enter the model's context and then toolshed arguments. Use P4. Keep the key in an environment variable or in `.frank/agent`.
-- **Context files:** our repo's `CLAUDE.md` / `AGENTS.md` load into Frankenstein's context unless we pass `-nc`.
+- **Context files:** our repo's `CLAUDE.md` / `AGENTS.md` load into Taltempla's context unless we pass `-nc`.
 - **Undocumented API:** `main(args, {extensionFactories})` and `InteractiveMode` are not in the docs, so they can change.
 - **No built-in spend cap:** Pi has none, and `before_provider_request` cannot block. Only `ctx.abort()` and `input:handled` work, and the timing of `ctx.abort()` is UNVERIFIED.
 - **MCP race:** with `deferred`, the first prompt does not wait for the toolshed to connect, so the gap pass must wait for it.

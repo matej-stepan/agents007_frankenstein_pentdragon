@@ -84,7 +84,7 @@ CONTAINER B: shedd (Python stdlib): admin API :7700 (admin token), runtime socke
 ## The Big Chef (in B, streams NDJSON trace lines to A)
 | Phase | Role | Context (fresh per role, stable prefix first) | Output |
 |---|---|---|---|
-| P1 Plan | flash high, ≤6 turns | rules, manifest schema, SDK cheat sheet, "comprehensive tool" checklist + task, need, lookup top-3; tools `explore` (top-5/page), `pkg_search` (top-8), `read_tool_skill`, `submit_plan` | big-tool spec + small tools as reuse@v or new spec (generic small tools only) |
+| P1 Plan | flash high, ≤8 turns (+2 once to fix a rejected plan) | rules, manifest schema, SDK cheat sheet, "comprehensive tool" checklist + task, need, lookup top-3; tools `explore` (top-5/page), `pkg_search` (top-8), `read_tool_skill`, `probe` (≤6: check each source and every URL pattern in the spec), `submit_plan` | big-tool spec + small tools as reuse@v or new spec (generic small tools only) |
 | P2 Tests | flash low | ONE spec + the interfaces of its `uses`, never code | `test_tool.py`; a sanity check that tests fail on a stub |
 | P3 Code | flash high, one append-only conversation per tool | spec, manifest, tests, uses-skills; `probe`, `request_package` | full file first, then SEARCH/REPLACE; gets back only failure excerpts (≤4 KB); one DISPUTE round goes to the test writer |
 | P4 Security | static AST checks (ban subprocess/eval/env/paths; literal `shed.call` ⊆ uses) + flash reviewer | manifest, code, static report, test summary | VERDICT; a reject gives 1 more coder iteration |
@@ -121,7 +121,7 @@ Pi (D1 → the Python CLI), gap pass (D6), triage (D30), stack pass (D5, merged 
 - **Host:** `uv sync` makes `.venv`. Every command runs as `uv run …`.
 - **Image:**
   - The Containerfile copies the `uv` binary from `ghcr.io/astral-sh/uv` with a pinned tag.
-  - It installs the server and SDK with `uv sync --frozen --no-dev`.
+  - The server and SDK are stdlib only and run from source via `PYTHONPATH` (prototype decision; no `uv sync` in the image).
   - It installs tier A from `tiers.py` with `uv pip install --system`.
   - `request_package` uses `uv pip install`, for catalog names only.
 - **Host apt packages are system packages only:** `podman`, `passt`, `uidmap`. uv comes from the official installer, user level.

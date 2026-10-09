@@ -36,3 +36,27 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Taltempla runtime state
+.frank/
+workspace/
+.ruff_cache/
+.pytest_cache/
+
+# Large artifacts (tool outputs, DBs, dumps, media) never go in git
+.claude/worktrees/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.mp3
+*.mp4
+*.wav
+*.webm
+*.pdf

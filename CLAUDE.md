@@ -1,6 +1,6 @@
 # Taltempla (hackathon Case 03)
 
-A self-extending agent: two modules, the CLI (on Pi, DeepSeek only) and the toolshed (local Podman sandbox and tool database).
+A self-extending agent: two modules, the CLI (Python, DeepSeek only) and the toolshed (local Podman sandbox and tool database).
 
 ## Documents
 - `SUBJECT.md`: the hackathon brief. `subject.txt` is the original.

@@ -1,0 +1,27 @@
+[project]
+name = "taltempla-workspace"
+version = "0.1.0"
+description = "Taltempla: a self-extending agent (CLI + toolshed)"
+requires-python = "==3.13.*"
+dependencies = ["taltempla", "taltempla-toolshed"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["cli", "toolshed"]
+
+[tool.uv.sources]
+taltempla = { workspace = true }
+taltempla-toolshed = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"

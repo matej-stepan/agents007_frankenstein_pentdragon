@@ -1,0 +1,31 @@
+# Taltempla toolshed (Module B). Build context = repo root:
+#   podman build -f toolshed/Containerfile -t localhost/taltempla-shed:latest .
+FROM docker.io/library/python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 LANG=C.UTF-8 \
+    UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
+    PYTHONPATH=/opt/shed/server:/opt/shed/sdk
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.24 /uv /uvx /usr/local/bin/
+
+# Tiers first: these layers are slow and change rarely.
+COPY toolshed/tiers.py toolshed/packages.json /opt/shed/
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends $(python3 /opt/shed/tiers.py system) \
+ && rm -rf /var/lib/apt/lists/*
+RUN UV_NO_CACHE=1 uv pip install --system $(python3 /opt/shed/tiers.py A)
+
+# The tool user (agent code runs as uid 1000 via setpriv) and the runtime dirs.
+RUN groupadd -g 1000 tool && useradd -M -u 1000 -g 1000 -s /bin/bash -d /nonexistent tool \
+ && mkdir -p /data /run/shed /run/meter /work /tmp/shed-run \
+ && chmod 0700 /data /run/meter && chmod 0755 /run/shed /tmp/shed-run
+
+# Server + SDK (stdlib only, run from source via PYTHONPATH; replaces "uv sync --frozen" for the prototype).
+COPY contract/manifest.schema.json /opt/shed/manifest.schema.json
+COPY toolshed/sdk /opt/shed/sdk
+COPY toolshed/server /opt/shed/server
+COPY cli/taltempla/llm.py /opt/shed/server/shed/llmclient.py
+
+WORKDIR /opt/shed
+EXPOSE 7700
+CMD ["python3", "-m", "shed"]

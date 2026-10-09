@@ -1,43 +1,28 @@
 # Open questions
 
-Status: v6, 2026-10-08. Language: ASD-STE100. When we answer a question, we move the answer to the decision log in [ARCHITECTURE.md](ARCHITECTURE.md).
-⭐ = this question blocks other work. PR-n = a proposal in ARCHITECTURE.md §13. En = an enforcement row in §5.
+Status: v7, 2026-10-08. Language: ASD-STE100. When we answer a question, we move the answer to the decision log in [ARCHITECTURE.md](ARCHITECTURE.md).
+⭐ = this question blocks other work. PR-n = a proposal in ARCHITECTURE.md §13. En = an enforcement row in §5. Contract = [contract/INTERFACES.md](contract/INTERFACES.md).
 
 ## CLI
-- ⭐ **Strict mode:** Strict tool schemas need `https://api.deepseek.com/beta`. Does Pi send `strict`? Fallback: a named tool, a check in the CLI and one retry.
-- **Fresh context (D23):** What enters the fresh context: the prompt, the gap list, the file references, a handoff note? Which role writes the handoff note?
-- **Forge form:** Do we keep the loop of nested calls in `execute()`? The alternative is an in-process `createAgentSession()`.
-- **Gap pass and triage:** How many recent turns enter the gap pass? When does the triage return `covered`, and when `build`?
-- **Too many builds:** Are the triage, `resolve_gap`, the build cap and `/skip` sufficient?
-- **Reviewer:** Only an LLM step, or also `ruff`? Which items are on the "malicious" checklist?
-- **Gate:** What is the layout? It must show the build log with all test runs and the last draft.
-- **Cap reached:** Does the run stop, or can the operator raise a cap with a command?
-- **Launcher:** Does the TUI operate with only `PATH` and `TERM` (E6)?
+- **Long sessions:** The CLI has no compaction. What does it do when the context of a session gets near the model limit? Each kept assistant message must keep its `reasoning_content`.
+- **Main agent effort:** Which `reasoning_effort` does the main agent use: the default, `low` or `high`? Measure the cost and the quality in the dry runs.
+- **Cap reached:** A 402 stops the step. Can the operator raise a cap in the session, or only with `make run CAP_RUN=…`?
+- **Reviewer switch:** How does the operator set P4 to `deepseek-v4-pro` (D41)? The contract has no variable for it.
 
 ## Toolshed
-- ⭐ **Podman check on the dev machine (30 min):** A rootless container, data volume permissions, DNS for package installs, a mount of the exchange directory.
-- **Tool user:** Which mechanism sets the limits: `timeout` and `ulimit`, or other?
-- **Admin token:** Where does it live? Does each `make toolshed-up` make a new token?
-- **Proposal:** Do we accept PR-4 (TypeScript server)?
-- **Runtime:** Which system packages: `pandoc`, `typst`, fonts, `poppler`? Can the forge add one?
-- **uv:** Which version do we pin? `--locked` for scripts needs uv 0.11.4 or later.
-- **Seed tools:** Do we need seed tools at all? A fetch tool needs the network.
-- **`invoked` events:** Do we record the call arguments? Arguments can contain personal data.
+- **Lookup thresholds:** Which bm25 and coverage values give `good`, `partial` and `none` (D35)? We tune them in the dry runs, with the demo prompts. A wrong `good` stops a necessary build. A wrong `none` builds a tool that exists. Record the final values as a decision.
+- **Repair input:** The `invoked` event does not record the arguments (D42). How does the repair build get the failed input for the regression test? Proposal: the main agent gives it in `need`.
+- **Permissions `network` and `files`:** The gates show them, but the runner does not apply them (E8). Do we add a network namespace for `network: false` and a read-only `/work` for `files: read`, or is this LATER?
 
 ## Module boundary
-- **Management tools (definition of done 3):** Confirm the demo prompt in §15 step 5. Which fields of the tool database can a tool read?
-- **Tools that need a third-party key:** The prototype forbids them. PR-14 (key injection) comes later.
-- **Compaction:** Does Pi compaction keep the `reasoning_content` of assistant messages? If not, a long session can fail with HTTP 400.
+- **Session 2 composition:** Brief definition of done 4 says "no rebuilding, no manual wiring". In session 2, fit `partial` makes the Big Chef build a new big tool from the session 1 small tools. Does the jury accept a new big tool as composition? Ask the mentor (rwngwn). Fallback: the main agent chains the small tools with `use_tool`.
 
 ## Inference
-- **`deepseek-v4-pro`:** The DeepSeek documents disagree about its end date. Do we accept PR-8 with the fallback?
-- **Cap values:** Confirm USD 0.50 for each build, 2.00 for each run, 5.00 for each session and 20.00 in total. Confirm 3 builds and 5 iterations.
-- **Account:** Do we accept PR-10? Who owns the account and the key? Which prepaid amount?
-- **Model names:** Confirm `deepseek-flash` and `deepseek-v4-pro` on the DeepSeek site before the build.
+- **Account (PR-10):** The balance is USD 6.06 (preflight). Is it a dedicated account? Is it sufficient for the dry runs and the recording? Who adds money?
+- **Prices:** Confirm the peak and off-peak prices in `prices.json` (contract §4) on the DeepSeek site. `/cost` compares the ledger with the balance change.
 
 ## Demo and twist
-- ⭐ **Twist:** Do we accept PR-15 (a price tag on each tool) and PR-16 (Frankenstein roles)?
-- **Scenario:** Confirm: a CV, then a job application in a new session, then a management question in session 3.
-- **Real failure:** Where does a real failure occur on video? We must not cut failures.
-- **Persona:** Do we accept PR-11 (a synthetic persona)?
-- **Voice (ElevenLabs, optional):** Do we do it if time is left? The CLI then holds a second key.
+- **Data sources:** Which real-estate sources does session 1 use (for example sreality.cz, bezrealitky.cz, reality.idnes.cz)? Which car sources does session 2 use (for example sauto.cz, tipcars.com)? Do their terms of use and `robots.txt` permit scraping for a demo? Do they block datacenter IPs or need JavaScript? The "comprehensive" checklist needs 2 sources or a fallback.
+- **Real failure:** Where does a real failure occur on video? We must not cut failures. The P3 test failures are real. The repair (§15 step 5) needs a real failed input, not a fake one.
+- **Twist (PR-16):** Do we keep the Frankenstein role names, or only the Big Chef?
+- **Voice (ElevenLabs, optional):** Do we do it if time is left? The CLI then holds a second key (D44 is only about tools).

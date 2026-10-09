@@ -1,256 +1,256 @@
 # Taltempla architecture
 
-Status: draft v6, 2026-10-08. Language: ASD-STE100. This is a plan, not an implementation.
-Scope: a prototype in 9 hours (§16). Brief: [SUBJECT.md](SUBJECT.md). Open questions: [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md). Raw research: [research/](research/).
-**PROPOSAL** = not a decision yet (§13). **LATER** = not in the prototype. **UNVERIFIED** = a test must confirm the fact.
+Status: v7, 2026-10-08. Language: ASD-STE100. Plan: [PLAN.md](PLAN.md). Interfaces (binding): [contract/INTERFACES.md](contract/INTERFACES.md) and [contract/manifest.schema.json](contract/manifest.schema.json).
+Brief: [SUBJECT.md](SUBJECT.md). Open questions: [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md). Raw research: [research/](research/) (v6, not a decision).
+**PROPOSAL** = not a decision yet (§13). **LATER** = not in the prototype. "Contract §n" = a section of `contract/INTERFACES.md`.
 
 ## 1. Modules
-The **CLI** is an agentic CLI on Pi. It holds the DeepSeek key and makes all LLM calls. It never executes generated code.
-The **toolshed** is one long-lived rootless Podman container. It executes code and keeps the tool database. It has no credentials.
+**Module A, the CLI**, is a Python 3.13 program on the host (D32). It has the agent loop, the operator interface and the meter. The meter is the only holder of the DeepSeek key. The CLI never executes generated code.
+**Module B, the toolshed**, is one long-lived rootless Podman container. Its server, shedd, keeps the tool database, does the lookup, runs the Big Chef and executes all generated code as the tool user. It has no credentials. Its LLM calls go through the meter.
 
 ## 2. Terms
 | Term | Definition |
 |---|---|
-| Admin API | The HTTP API of the toolshed server for CLI code (§8). It needs the admin token. The model cannot reach it. |
-| Admin token | A random local secret. Only the CLI and the toolshed server know it. It is not a credential. |
-| Agent channel | The MCP endpoint of the toolshed server. It gives the main agent one tool for each active version. |
-| Build | One forge sequence for one gap (B1–B8). |
-| Build log | The record of each build: the triage result, each iteration, each test run, the review and the gate decision. The CLI owns it. |
-| Cap | A limit that code enforces on USD, builds, iterations, turns or time (§10). |
-| Catalog | The CLI copy of the `list` result: the name, description and schema of each active version. |
-| CLI | The module that the operator uses: a Pi package that the launcher starts. |
-| Content hash | The hash of the code, the manifest and the test set of a draft. |
+| Admin API | The HTTP API of shedd for CLI code (contract §5). It needs the admin token. The model cannot reach it. |
+| Admin token | A random local secret in `.frank/admin.token`. Only the CLI and shedd know it. It is not a credential. |
+| Big Chef | The agent in the toolshed that builds tools for a gap, in the phases P1–P5 (§9). |
+| Big tool | A task-level tool that calls small tools. Its `uses` is not empty. |
+| Build | One Big Chef sequence for one gap or one repair. |
+| Build log | The records of a build in the tool database: the trace, each test run, each review and the result. |
+| Cap | A limit that code enforces on USD, tools, iterations, turns, time, memory or processes (§10). |
+| Content hash | The hash of the manifest and the files of a draft (contract §6). It binds the test runs, the review and the install approval. |
 | Credential | A key for an external service, for example the DeepSeek key. |
 | Draft | The files of a tool that the toolshed did not register. |
-| Exchange directory | The host directory `./workspace`, with `in/` and `out/`. The toolshed mounts it. Files go between the modules only through it. |
-| Forge | A CLI tool that makes a version from a gap (§9). |
-| Fresh context | A new main agent context in the same run. It has the prompt, the gap list, the file references and a handoff note. |
-| Gap | A capability that a task needs and that the toolset does not have. It has an ID and a spec: purpose, interface, examples. |
-| Gap list | The gaps of the current run and their resolutions. |
-| Gap pass | A nested call before each reply. It has a low threshold, on purpose: when it is not sure, it reports a gap. |
-| Gate | The step where the operator approves or rejects a draft. |
-| Governor | The CLI component that enforces the caps and keeps the ledger. |
-| Guard | The CLI component that stops Pi if a tool outside the allowlist is present. |
-| Iteration | One generator attempt in a build. |
-| Launcher | The `make run` command. It starts Pi with a fixed configuration (§6). |
-| Ledger | The record of the USD cost of each LLM call. |
-| Main agent | The Pi agent loop that answers the operator. |
-| Management tool | An agent tool that reads the tool database and returns information. It cannot change the tool database. |
-| Nested call | An LLM call that CLI code makes outside the main agent loop. |
-| Notice | The MCP message that tells Pi that the toolset changed. |
+| Exchange directory | The host directory `./workspace`, with `in/` and `out/`. The container mounts it at `/work`. Files go between the modules only through it. |
+| Fit | The lookup result: `good`, `partial` or `none`. |
+| Gap | A capability that a task needs and that the toolset does not have: a lookup with fit `none` or `partial`, or a failed invocation. |
+| Grant | A random token from the meter for one scope: `session`, `run`, `build` or `tool_run`. Each LLM call needs a grant. |
+| Install gate | The CLI step where the operator approves or rejects the new tools of a build. |
+| Ledger | The meter record of each LLM call, its USD cost and the USD that reuse saved (`.frank/ledger.db`). |
+| Lookup | A search of the tool database without an LLM. It returns 3 rows or fewer, a fit and a lookup ID. |
+| Main agent | The agent loop in the CLI that answers the operator. |
+| Manifest | The declaration of a tool: grade, summary, interfaces, `uses`, deps, permissions, limits and examples. |
+| Meter | The CLI component that holds the key, checks grants and caps, sends each LLM call and writes the ledger. |
 | Operator | The person at the terminal. |
-| Origin | The source label of a version: `seed` (the team wrote it) or `agent`. |
-| Repair record | A gap that a failed tool call makes. |
-| Resolution | The end state of a gap: `built`, `failed`, `covered`, `out_of_scope` or `skipped`. |
+| Permission hash | The hash of the name, `uses`, deps and permissions of a tool. It binds "always allow". |
+| Repair | A build for a failed invocation. It makes version n+1 with a parent. |
+| Root invocation | One `use_tool` call and all tool calls that it starts. |
 | Run | One operator prompt, until the main agent stops. |
-| Session | One Pi process, from `make run` to exit. A session contains one or more runs. |
-| Test set | The tests that the test writer wrote for a draft. |
-| Tool | A capability with a manifest (purpose, interface, examples, stack, permissions), code and a test set. |
-| Tool database | The SQLite file in the toolshed. The brief calls it the registry. |
-| Tool user | The low-privilege user in the toolshed that executes all generated code. |
+| Run token | A random token for one tool process. It authenticates the process on the runtime socket. |
+| Runner | The part of shedd that executes agent code as the tool user, with limits. |
+| Runtime socket | The unix socket of shedd in the container (`/run/shed/rt.sock`). Tool code uses it for `call`, `llm` and `registry`. |
+| SDK | `shed_sdk`: the library for tool code and tests (contract §6). |
+| Session | One CLI process, from `make run` to exit. A session contains one or more runs. |
+| shedd | The toolshed server: the trusted process in the container. |
+| Skill | The `SKILL.md` of a tool (1200 characters or fewer): how and when to use the tool, and its limits. |
+| Small tool | A generic tool that other tools can use again. |
+| Test set | The `test_tool.py` of a draft. Only the P2 test writer writes it. |
+| Tier | A group of packages. Tier A is in the image. The other catalog packages install on request. |
+| Tool | A capability: a manifest, `tool.py`, a test set and a skill. |
+| Tool database | The SQLite file `/data/shed.db` in the toolshed. The brief calls it the registry. |
+| Tool user | The low-privilege user `tool` (uid 1000) in the toolshed. It executes all agent code. |
 | Toolset | The active version of each tool. |
-| Toolshed | The module that executes code and keeps the tool database. |
-| Toolshed server | The trusted process in the toolshed. It owns the admin API, the agent channel and the tool database. |
-| Triage | The first nested call of each build. It decides: an available tool covers the gap, or the forge builds. The build log records the result. |
-| Version | One registered state of a tool. A content hash identifies it. It has an origin and a parent version. |
+| Use gate | The CLI step where the operator approves one tool call. |
+| Version | One registered state of a tool. A content hash identifies it. It can have a parent version. |
 | Workspace tools | `ws_read` and `ws_write`: main agent tools for text files in the exchange directory. |
 
 ## 3. Rules
-1. Generated code executes only in the toolshed, as the tool user. It never executes on the host.
-2. The CLI has no host code execution: no `bash`, no `codemode`, no operator shell, no writes outside the exchange directory.
-3. The toolshed has no credentials. It makes no LLM calls.
-4. The CLI makes all LLM calls. All LLM calls go to the DeepSeek API.
-5. The toolshed registers a draft only after its test set passes and the operator approves its content hash. The build log shows each test run.
-6. The main agent can call only registered tools, `forge`, `resolve_gap` and the workspace tools. Only CLI code uses the admin API.
-7. Each tool declares its permissions. The gate shows each new permission to the operator.
-8. Code enforces caps on USD, builds, iterations, turns and time.
-9. Each version has an origin and a parent version. Only `make seed` writes the origin `seed`.
+1. Generated code executes only in the toolshed, as the tool user. The host never executes, imports or `exec`s it.
+2. The CLI has no host code execution: no shell, no `exec`, no writes outside the exchange directory.
+3. Only the meter holds the DeepSeek key. Each LLM call goes through the meter with a grant. The toolshed has no credentials.
+4. All LLM calls go to the DeepSeek API.
+5. The toolshed registers a draft only after a passed test run, an `approve` review and an operator approval, all for the same content hash. The build log shows each test run.
+6. The main agent has five fixed tools (§6). Only CLI code uses the admin API.
+7. Each tool declares its permissions. The install gate and the use gate show them.
+8. Code enforces caps on USD, tools, iterations, turns, time, memory and processes (§10).
+9. Each version comes from a Big Chef build and the install gate. No person and no script puts a tool into the tool database (D47).
 10. The tool database keeps all versions and records. History only goes forward. The operator can roll back a tool.
-11. Each gap comes from a task. The forge accepts only a gap ID from the current run. Each gap gets a resolution.
-12. Capabilities can grow, authority cannot. Tools can read the tool database, but they cannot change it. Only the operator changes it: at the gate or with `/rollback`.
-13. The agent never sees a key. No key enters the LLM context, the build log, the tool code or the toolshed.
+11. Each gap comes from a task. `big_chef` accepts only a lookup ID from the current session with fit `none` or `partial`, or a failed invocation (D35).
+12. Capabilities can grow, authority cannot. A tool can read the registry statistics, but it cannot change them. A tool can call only the tools in its `uses`. Only the operator changes the toolset: at the install gate or with `/rollback`.
+13. No key enters an LLM context, a log, a trace, the tool database, the toolshed or a tool.
 
 ## 4. Module boundary
 | Responsibility | Owner |
 |---|---|
-| Operator interface: prompts, gate, commands, status | CLI |
-| The DeepSeek key and all LLM calls | CLI |
-| Gaps, triage, specs, resolutions, review and the approval decision | CLI |
-| Caps, ledger and build log | CLI |
-| The catalog and how Pi shows the toolshed tools | CLI |
-| Code execution, packages and the limits for each execution | Toolshed |
-| Tool database: versions, records, active pointers, rollback | Toolshed |
+| Operator interface: prompts, gates, commands, status line | CLI |
+| The meter: the DeepSeek key, grants, USD caps, the ledger | CLI |
+| Approvals: install, use, "always allow" (`.frank/permissions.json`) | CLI |
+| Lookup, tool database, versions, rollback | Toolshed |
+| Big Chef (plan, tests, code, security, handoff) and the build log | Toolshed |
+| Code execution, chaining, packages and the limits of each execution | Toolshed |
 
-| Channel | Direction | Transport | Caller | Content |
+| Channel | Direction | Transport | Caller | Contract |
 |---|---|---|---|---|
-| Admin API | CLI → toolshed | HTTP on 127.0.0.1, with the admin token | CLI code only | The operations in §8 |
-| Agent channel | CLI → toolshed | MCP streamable HTTP on 127.0.0.1 | Main agent, through Pi MCP | One MCP tool for each active version |
-| Notice | Toolshed → CLI | MCP `notifications/tools/list_changed` | Toolshed server | After `register` and `rollback` |
-| Files | Both | Exchange directory | Toolshed, workspace tools | File references |
+| Admin API | CLI → toolshed | HTTP on `127.0.0.1:7700`, admin token | CLI code only | §5 |
+| Chef trace | Toolshed → CLI | NDJSON stream in the `/chef/build` reply | shedd | §8 |
+| Meter | Toolshed → CLI | HTTP on the unix socket `.frank/run/meter.sock` (`/run/meter` in the container), grant | shedd only | §4 |
+| Runtime socket | Tool code → shedd | JSON lines on `/run/shed/rt.sock`, run token | Tool code | §7 |
+| Files | Both | Exchange directory | shedd, workspace tools | §2 |
 
-**Never crosses:** credentials, LLM calls and requests for host code execution.
+**Never crosses:** the key, the host environment and requests for host code execution.
 
 ## 5. Boundary enforcement
 **E** = code or configuration enforces the rule. **CONV** = a convention only, in the prototype.
 
 | # | Rule | Mechanism | Status |
 |---|---|---|---|
-| E1 | 1 | The toolshed server executes all generated code as the tool user, with a timeout and resource limits. The container is rootless. | E |
-| E2 | 2 | The launcher removes `bash`, `codemode`, `read`, `write` and `edit` with `--exclude-tools`. | E |
-| E3 | 2, 6 | At `session_start` and `turn_start`, the guard compares the Pi tool list with an allowlist. Another tool stops Pi. | E |
-| E4 | 2 | A `user_bash` handler refuses the operator `!` shell. The workspace tools refuse each path outside the exchange directory. | E |
-| E5 | 3, 13 | `make toolshed-up` starts the container with no host environment, no home directory mount and no sockets. It mounts only the exchange directory and the data volume. | E |
-| E6 | 4, 13 | The launcher starts Pi with only the DeepSeek key, `PATH` and `TERM`. A `model_select` handler refuses each provider other than `deepseek`. | E |
-| E7 | 5, 6 | `register` needs the admin token, a passed test run on the content hash and an approval that names the content hash. The tool user cannot read the admin token. | E |
-| E8 | 5 | The forge gives the generator no operation that changes the test set. Only the test writer writes it. | E |
-| E9 | 7 | The gate shows each new permission. The toolshed does not apply permissions. | CONV; LATER: network for each tool |
-| E10 | 8 | The governor enforces each cap (§10). The forge is sequential. A cap can overshoot by one call (D24). | E |
-| E11 | 9, 10 | Only `make seed` writes `seed`. The admin API has no delete operation. | E |
-| E12 | 11 | `forge` accepts only a gap ID from the gap list of the current run. | E |
-| E13 | 12 | The tool user can read the tool database file. It cannot write it. | E |
-| E14 | 13 | The agent has no host shell and no file access outside the exchange directory (E2, E4). The ledger and the build log record no request headers. | E |
+| E1 | 1 | The runner executes all agent code as the tool user: `setpriv` (uid 1000, no new privileges, no groups), `prlimit`, `timeout`, `env -i` and a new directory for each run (D46). The container is rootless. | E |
+| E2 | 2, 6 | The CLI is our code. The main agent gets five tool schemas and no other tool. There is no shell tool. | E |
+| E3 | 2 | The workspace tools refuse each path outside `workspace/`. | E |
+| E4 | 3, 13 | `make toolshed-up` gives the container no `.env`, no host environment, no home directory and no Podman socket. It mounts only the data volume, the exchange directory and the meter socket directory. | E |
+| E5 | 3 | Only the meter reads the key. The meter refuses a bad grant (401). The socket directory is 0700 and the socket is 0600: shedd (container root) connects, the tool user gets EACCES (D45). | E |
+| E6 | 5, 6 | `register` needs the admin token, a passed test run, an `approve` review and an approval for each content hash (else 409). shedd removes the admin token from its environment at start. `/data` is 0700 root. | E |
+| E7 | 5 | Only P2 writes the test set. P3 has no operation that changes it. P3 can start one DISPUTE round with the test writer (D20). | E |
+| E8 | 7 | `llm_usd`: the runtime socket refuses `llm` when it is 0, and the meter caps the root grant. `network` and `files`: the gates show them, the runner does not apply them. | E / CONV |
+| E9 | 8 | The meter reserves before each call and settles after it (D37). The Big Chef counts tools, iterations, turns and time. The runner applies time, memory and process limits. | E |
+| E10 | 9, 10 | Triggers make versions, test runs, reviews, approvals, events and build logs append-only. The admin API has no delete operation. | E |
+| E11 | 11 | `/chef/build` refuses (400) a lookup ID that is not valid, and a repair without a failed invocation. | E |
+| E12 | 12 | The runtime socket refuses a `call` outside `uses` or over the depth and subcall limits. `registry` returns only statistics. The P4 static check refuses a `shed.call` name that is not a literal. | E |
+| E13 | 13 | The ledger, the traces and the tool database record no request headers. | E |
 
-LATER: static code checks (`make check`) and live boundary tests (`make test-boundary`).
+## 6. CLI module (Module A)
+One Python process: `uv run taltempla` (files: contract §1). It reads `OAI_COMPATIBLE_KEY` from `.env` and gives it only to the meter.
 
-## 6. CLI module
-The launcher starts Pi 1.1.0 with a fixed configuration. The Pi agent directory is `.frank/agent`: separate settings, prices and sessions.
-Pi loads only the MCP support and `cli/`. It loads no built-in tools and no project-local configuration. The DeepSeek key is only in the launcher environment.
+| Component | Files | Function |
+|---|---|---|
+| Agent loop | `loop.py`, `prompt.md` | Chat with tool calls. It keeps `reasoning_content` in each assistant message. Our system prompt: about 200 tokens, byte-stable. |
+| LLM client | `llm.py` | OpenAI-compatible, standard library only (contract §3). The image has a copy for shedd. |
+| Meter | `meter.py`, `ledger.sql`, `prices.json` | A thread in the CLI process: grants, reserve and settle, the ledger, the unix socket server for shedd (contract §4). The agent loop calls it in-process, on the same path. |
+| Toolshed client | `shed_client.py` | Admin API calls. It reads the NDJSON stream of the Big Chef. |
+| Install gate | `gate.py` | A `prompt_toolkit` choice: Install + run once / Install + always allow / Show code·tests·log / Reject. |
+| Use gate | `approvals.py` | Before each `use_tool`: "Run X v1? chains a, b, c · net · LLM ≤$0.05" → Allow once / Always allow / Deny. It keeps `.frank/permissions.json`. |
+| Workspace tools | `ws_tools.py` | `ws_read` (64 KB or less) and `ws_write`, jailed to `workspace/`. |
+| Commands | `commands.py` | `/shed`, `/cost` (by run, role and tool, with the savings from reuse), `/rollback`, `/allow`. |
+| UI | `ui.py`, `main.py` | `rich` markdown. One dim line for each Big Chef step. Status line: `$sess · run $ · tok % cached · saved $ · cap left`. |
 
-| Component | Pi mechanism |
-|---|---|
-| Guard | `session_start` and `turn_start` with `pi.getAllTools()`; `ctx.shutdown()` |
-| Workspace tools | `pi.registerTool`: `ws_read` and `ws_write`, with jailed file operations |
-| Toolshed client | `make run` calls `health`. At `session_start`: `list`, then `pi.registerMcpServer`. If the toolshed does not answer, the CLI stops. |
-| Gap pass | `before_agent_start`: one nested call. The plan and the specs enter the context as text. |
-| Forge | `pi.registerTool("forge")`, sequential. `execute()` does B1–B8 as nested calls with fresh contexts. |
-| Triage | The first nested call of `forge`. The build log and the ledger record the result. |
-| `resolve_gap` | `pi.registerTool`: the main agent marks a gap `covered` or `out_of_scope`, with a reason. |
-| Gate | `ctx.ui.custom()` or `ctx.ui.confirm()`. Without a UI, there is no approval. |
-| Governor | `input`, `turn_start`, `turn_end`, `message_end`, `tool_call` on `forge`, and the nested-call wrapper |
-| Build log | `pi.appendEntry()` and a file for each build in `.frank/runs/` |
-| Repair, settle | `tool_result`: a failed toolshed call makes a repair record. `agent_before_settle`: a gap without a resolution gets one more turn. |
-| Operator view | Commands `/shed`, `/gaps`, `/skip`, `/cost`, `/rollback`. The status line shows the USD left. |
+The main agent tools are fixed (D33, contract §9): `lookup`, `use_tool`, `big_chef`, `ws_read`, `ws_write`.
 
 ## 7. Inference
-The CLI uses only the DeepSeek API, through the built-in `deepseek` provider of Pi. The OpenAI SDK is not necessary (PR-7).
+All LLM calls go to the DeepSeek API through the meter. Models: `deepseek-flash` (V4.1-Flash) and `deepseek-v4-pro`. Effort levels: `low`, `high`, `max`.
 
-| Role | Model | Thinking | Context | Output |
-|---|---|---|---|---|
-| Main agent | `deepseek-flash` | `high` | Pi session | Text and tool calls |
-| Gap pass | `deepseek-flash` | off | Prompt, recent turns, catalog | Named tool `report_plan` |
-| Triage | `deepseek-flash` | off | Spec, catalog | Named tool: `covered` with tool names, or `build` |
-| Stack pass | `deepseek-flash` | `low` | Spec, runtime packages | The manifest stack, packages and permissions |
-| Test writer | `deepseek-flash` | `high` | Spec and examples, never code | Test set |
-| Generator | `deepseek-flash` | `high` | Spec, manifest, test set, results | Forge tools: `put` (code only), `exec`, `test`, `request_package` |
-| Reviewer | `deepseek-v4-pro` (PR-8) | `high` | Spec, manifest, code, build log | Tool `submit_verdict`. No verdict means reject. |
+| Role | Model | Effort | Context | Output | `max_tokens` |
+|---|---|---|---|---|---|
+| Main agent | `deepseek-flash` (`MODEL`) | — | System prompt, session history | Text and tool calls | 8192 |
+| P1 Plan | `deepseek-flash` | `high` | Rules, manifest schema, SDK sheet, checklist, task, need, lookup top 3 | Spec tree (`submit_plan`) | 16384 |
+| P2 Tests | `deepseek-flash` | `low` | One spec and the interfaces of its `uses`, never code | `test_tool.py` | 12288 |
+| P3 Code | `deepseek-flash` | `high` | Spec, manifest, tests, skills of `uses`, failure excerpts | Tool code | 16384 |
+| P4 Security | `deepseek-flash`; `deepseek-v4-pro` as a switch | — | Manifest, code, static report, test summary | VERDICT | 6144 |
+| Agentic tool | `deepseek-flash` | — | The `shed.llm` prompt of the tool | Text or JSON | 4096 |
 
-1. Thinking mode rejects a forced `tool_choice`. Thus forced output uses thinking `off`.
-2. DeepSeek rejects a request without the earlier `reasoning_content`. Thus the forge loop returns each assistant message unchanged.
-3. Cost of one call = cache-hit tokens × hit price + cache-miss tokens × miss price + output tokens × output price.
-4. The ledger is the authority for cost. The wrapper settles each nested call. `message_end` settles each main agent message.
+1. Thinking is on by default. The client never sends a forced `tool_choice`.
+2. DeepSeek returns HTTP 400 when a request does not include the earlier `reasoning_content`. Thus the client keeps it in each assistant message.
+3. Cost of one call = cache-hit tokens × hit price + cache-miss tokens × miss price + output tokens × output price. The meter uses the peak or off-peak price by the UTC start time (contract §4).
+4. The ledger is the authority for cost. The provider balance is the real stop (USD 6.06 at the preflight).
+5. The system prompt and the tool schemas do not change in a session. Thus the prompt cache stays valid. Each Big Chef role puts its stable prefix first.
 
-## 8. Toolshed module
-The toolshed is one long-lived rootless Podman container. `make toolshed-up` starts it. `make toolshed-down` stops it and keeps the data volume.
+## 8. Toolshed module (Module B)
+One long-lived rootless Podman container from `python:3.13-slim` (constants: contract §2). `make toolshed-up` starts it. `make toolshed-down` stops it and keeps the data volume.
 
-| Part | Description |
-|---|---|
-| Toolshed server | The trusted process. It owns the admin API, the agent channel and the tool database. |
-| Tool user | It executes `exec`, `test` and `invoke`, with a timeout, a memory limit and a process limit. It cannot read the admin token or write the tool database. |
-| Runtime | Python 3.13, `uv` and system packages, for example `pandoc`, `typst` and fonts. A tool is one Python file (D21). |
-| Packages | The manifest is the single source. `install` makes a separate environment for each tool. The network is on. |
-| Tool database | SQLite in the data volume: versions (code, manifest, test set, origin, parent), test runs with full logs, approvals, events and active pointers. |
-| Rollback | It moves the active pointer of one tool and records an event. |
-| Test minimum | One case for each manifest example and one error case or more. |
-| File references | A manifest input or output of type `file` is a path in the exchange directory. Thus the output of one tool can be the input of the next tool. |
+| Part | Files | Function |
+|---|---|---|
+| shedd | `app.py` | The trusted process, as container root (D46). Admin API on `:7700`, runtime socket, Big Chef, runner. Standard library only (D40). |
+| Tool database | `db.py`, `schema.sql` | SQLite with WAL and FTS5 in `/data` (0700 root). Append-only: versions, test runs, reviews, approvals, events, build logs. Mutable: active pointers, drafts, build status, lookups, packages. |
+| Lookup | `lookup.py` | FTS5 bm25 over name, summary, keywords, description and skill, plus a coverage score. Big tools first. It records each lookup (D35). |
+| Runner | `runner.py` | `probe`, `run_tests` and `run_tool` as the tool user (D46). |
+| Chaining | `chain.py` | The runtime socket: run tokens, `uses` scope, depth, subcalls, deadline (D38). |
+| Meter client | `llm.py` | Calls the meter on `/run/meter/meter.sock`. A 402 raises `CapExceeded`. |
+| Packages | `pkgindex.py`, `tiers.py` | The catalog `packages.json`. Tier A is in the image. `request_package` installs catalog names only (D43). |
+| Big Chef | `chef/` | `orchestrator.py`, `static_check.py`, `prompts/` (§9). |
+| SDK | `shed_sdk` | `Shed` (`call`, `llm`, `registry`, `log`, `out_dir`) for tool code. `MockShed` for tests. |
 
-| Operation | Function |
-|---|---|
-| `health`, `list`, `history` | Return the status, the tool list with schemas, or all records of one tool. |
-| `draft`, `put`, `get`, `diff` | Make a draft (empty or from a parent version). Move files into or out of it. Compare it with its parent. |
-| `install` | Install the packages of the manifest. |
-| `exec` | Execute draft code. Return the exit code, stdout, stderr, the duration and the output files. |
-| `test` | Execute the test set. Record a test run with the full log. Return a report and the test run ID. |
-| `register` | Make a draft a version (E7). Set the active pointer. Send the notice. |
-| `rollback` | Make an earlier version active. Send the notice. |
-| `invoke` | Agent channel only. Execute the active version of a tool. Record an `invoked` event. |
+Admin API routes (contract §5): `health`, `tools`, `lookup`, `invoke`, `chef/build`, `drafts`, `register`, `reject`, `rollback`, `history`, `stats`.
+Tool package (contract §6): `manifest.json`, `tool.py` with `run(args, shed)`, `test_tool.py`, `SKILL.md`. A big tool returns `{results, warnings, sources}`. Tests use `MockShed` and one live smoke test or fewer.
 
 ## 9. Sequences
-Steps: **S** = start, **1–7** = run, **B** = build, **R** = repair.
+Steps: **S** = start, **1–6** = run, **P1–P5** = Big Chef build, **R** = repair.
 
 | Step | Module | Action |
 |---|---|---|
-| S1 | Toolshed | `make toolshed-up` starts the container and the toolshed server. |
-| S2 | CLI | `make run` calls `health` and starts Pi. The guard checks the tool list. The catalog loads. Pi connects the agent channel. |
-| 1 | CLI | The operator sends a prompt. The governor refuses it if a cap has no USD left. |
-| 2 | CLI | The gap pass compares the prompt with the catalog. Its plan and specs enter the context. The gap list records the IDs. |
-| 3 | CLI → Toolshed | The main agent calls registered tools. Each call is an `invoke`. Output files return as file references. |
-| 4 | CLI | For each gap, the main agent calls `forge` (B1–B8) or `resolve_gap`. |
-| 5 | CLI | A failed tool call makes a repair record. The main agent calls `forge` with it (R1). |
-| 6 | CLI | The main agent completes the task. If a gap has no resolution, the settle check requests one more turn. |
-| 7 | CLI | The run stops. The governor writes the run cost to the ledger and the status line. |
-| B1 | CLI | The governor checks the caps. |
-| B2 | CLI | The triage compares the spec with the catalog. The build log records the result. If the result is `covered`, the forge records the resolution and stops. |
-| B3 | CLI | The stack pass writes the manifest. The test writer writes the test set from the spec. |
-| B4 | CLI → Toolshed | The forge calls `draft`, then `put` with the manifest and the test set, then `install`. |
-| B5 | CLI ↔ Toolshed | The generator writes the code and calls `exec` and `test`. A failure starts a new iteration, up to the cap. The build log records each test run. |
-| B6 | CLI | The reviewer examines the code, the manifest and the build log. A reject starts one more iteration if the caps permit. |
-| B7 | CLI | The gate shows the manifest, the new permissions, the code and test diffs, the parent version, the build log, the verdict and the cost. The operator approves or rejects. |
-| B8 | CLI → Toolshed | Approval: the forge calls `register` and records `built`. The run continues in a fresh context (D23). Reject: the forge records `failed`. |
-| R1 | CLI ↔ Toolshed | The forge makes a draft from the active version. The test writer adds the failed input as a test. If that test passes, the forge stops. If not, the build continues at B5. |
+| S1 | Toolshed | `make toolshed-up` builds the image and makes the admin token if necessary. Then it starts the container. |
+| S2 | CLI | `make run` does `make doctor` and starts the toolshed if it is down. The CLI reads `.env`, starts the meter socket, calls `health` and opens a session grant. The ledger records the start balance. |
+| 1 | CLI | The operator sends a prompt. The meter opens a run grant. |
+| 2 | CLI → Toolshed | The main agent calls `lookup`. shedd returns 3 rows or fewer, a fit and a lookup ID. |
+| 3 | CLI → Toolshed | Fit `good`: the main agent reads the skill if necessary (`lookup(tool=X)`) and calls `use_tool`. The use gate asks the operator. shedd executes the tool. Sub-tool calls go through the runtime socket. `shed.llm` goes through shedd to the meter on the root grant. |
+| 4 | CLI → Toolshed | Fit `none` or `partial`: the main agent calls `big_chef` with the lookup ID. The meter opens a build grant. shedd checks the gap rule and does P1–P5. The CLI shows one trace line for each step, then the install gate. |
+| 5 | CLI → Toolshed | Approval: the CLI calls `register` for each content hash. The main agent then calls `use_tool` with the new tool, in the same run. Reject: the CLI calls `reject`. |
+| 6 | CLI | The run stops. The status line shows the run cost. The ledger records the USD that reuse saved. |
+| P1 | Toolshed | Plan, 6 turns or fewer. Tools: `explore` (top 5 for each page), `pkg_search` (top 8), `read_tool_skill`, `submit_plan`. Output: the big tool spec and, for each small tool, `reuse@v` or a new spec. New small tools must be generic. The plan sets deps and permissions. |
+| P2 | Toolshed | The test writer writes `test_tool.py` for one spec. A sanity check makes sure that the tests fail on a stub. |
+| P3 | Toolshed | The coder writes the full file, then SEARCH/REPLACE edits, in one append-only conversation for each tool. It gets back only failure excerpts (4 KB or less). Tools: `probe`, `request_package`. One DISPUTE round goes to the test writer. |
+| P4 | Toolshed | Static AST checks, then the flash reviewer (D41). VERDICT `approve` or `reject`. A reject gives one more coder iteration. |
+| P5 | Toolshed → CLI | Handoff: the tool tree (reused and new), permissions, deps, tests n/n, iterations, verdict, cost. |
+| R1 | CLI → Toolshed | After a failed invocation, the main agent calls `big_chef` with `repair_of`. The test writer adds a regression test from the failed input. The build makes version n+1 with a parent. `/rollback` moves back. |
+
+Order: P1, then P2–P4 for each new small tool, then P2–P4 for the big tool, then P5.
+"Comprehensive" checklist for a big tool: input validation, 2 sources or a fallback, pagination, deduplication, normalized units, `{results, warnings, sources}`, retries, ranking with reasons, a mocked offline core, and a skill that states the limits.
 
 ## 10. Caps and cost
 | Cap | Default | Scope | Enforcer |
 |---|---|---|---|
-| USD | 0.50 / 2.00 / 5.00 / 20.00 | Build / run / session / total | Governor |
-| Builds / iterations | 3 / 5 | Each run / each build | Governor / forge |
-| Agent turns, run time | 40, 30 min | Each run | Governor |
-| Time, memory, processes | 60 s, 1 GiB, 256 | Each `exec`, `test`, `invoke` | Toolshed server |
+| USD | 0.60 / 2.00 / 5.00 / 20.00 | Build / run / session / total | Meter (grant chain) |
+| Tool LLM USD | `permissions.llm_usd` (0.25 or less) | Each root invocation | Runtime socket, meter |
+| `max_tokens` | 4096–16384, by role (§7) | Each LLM call | Meter |
+| New small tools | 3 (+ the big tool) | Each build | Big Chef |
+| Coder iterations | 4, + 1 after a reject | Each tool | Big Chef |
+| LLM turns, wall time | 40, 12 min | Each build | Big Chef |
+| Chain depth, subcalls | 3, 20, the root deadline | Each root invocation | Runtime socket |
+| Time, memory, processes, files | 60 s (max 180), 2 GiB (max 4 GiB), 512, 1024 | Each execution | Runner |
+| Processes, memory | 2048, 4 GB | The container | Podman |
 
-The ledger keeps the total for all sessions. When a cap stops a run, the CLI shows the ledger.
+- The meter reserves an estimate before each call. If a cap at a level fails, the meter refuses with a 402 and records a `refused` row. A call can cost more than its estimate (D37).
+- `make run CAP_RUN=… CAP_SESSION=…` changes the caps for one session.
+- The ledger keeps the total for all sessions. `/cost` shows it by run, role and tool, with the savings from reuse. It also compares the ledger with the change of the provider balance.
 
 ## 11. Project structure and Makefile
-In git: `Makefile`, `cli/` (Pi package, launcher, governor), `contract/` (operation and manifest schemas for both modules), `toolshed/` (`Containerfile`, server), `seeds/`, `tests/`.
-Not in git: `workspace/` (the exchange directory) and `.frank/` (CLI state: agent directory, sessions, ledger, build logs).
+In git: `Makefile`, `pyproject.toml`, `uv.lock`, `cli/`, `toolshed/`, `contract/`, `tests/`, `spikes/`. Layout: contract §1.
+Not in git: `.env`, `workspace/` (the exchange directory) and `.frank/` (ledger, permissions, admin token, history, meter socket).
+The Makefile is the single entry point (D10). `make help` is the default target. Variables: `MODEL`, `CAP_RUN`, `CAP_SESSION`, `GATE`.
 
 | Target | Function |
 |---|---|
-| `deps`, `build`, `install` | Install Pi, Node packages and Podman. Build the CLI package and the toolshed image. Write `.frank/agent`. |
-| `test` | Execute the unit and contract tests. |
-| `toolshed-up`, `-down`, `-reset`, `-shell` | Start the toolshed. Stop it and keep the data. Delete all data. Open a shell as the tool user. |
-| `seed`, `run` | Load the seed tools with origin `seed`. Start the CLI through the launcher. |
+| `help` | List the targets (default). |
+| `deps` | Print the apt line (`podman passt uidmap`). Install uv if necessary. `uv sync`. |
+| `doctor` | Preflight checks: uv, rootless Podman, subuid, the key in `.env`, the image, `health`. Each failed check prints the fix. |
+| `image` | Build the toolshed image. |
+| `toolshed-up`, `-down`, `-reset`, `-shell`, `-logs` | Start. Stop and keep the data. Delete all data. Open a shell as the tool user. Show the logs. |
+| `run` | Start the CLI. It does `doctor` first and starts the toolshed if it is down. |
+| `shed`, `cost`, `history T=` | Print the registry, the ledger, or the history of one tool. |
+| `rollback T= V=` | Roll back one tool. |
+| `test`, `lint`, `fmt`, `lock` | pytest, `ruff check`, `ruff format`, `uv lock`. |
+| `spike-shed`, `demo-reset`, `clean` | The container spike. Back up and clear the tool database and the ledger. Remove caches and build output. |
 
 ## 12. Stack
-| Layer | Choice | Status |
+| Layer | Choice | Decision |
 |---|---|---|
-| CLI | Pi 1.1.0 (`@earendil-works/pi-coding-agent`): a local Pi package and a launcher | D1 |
-| Inference | The built-in `deepseek` provider of Pi: `deepseek-flash`; `deepseek-v4-pro` for the reviewer | D14, PR-7, PR-8 |
-| Toolshed | One rootless Podman container, SQLite, Python 3.13 tools with `uv` | D21, D25, D28, D29 |
-| Toolshed server | TypeScript, with the MCP TypeScript SDK | PROPOSAL PR-4 |
+| CLI | Python 3.13, `rich`, `prompt_toolkit` 3.0.53, our OpenAI-compatible client | D32 |
+| Inference | DeepSeek API: `deepseek-flash`; `deepseek-v4-pro` as a switch for P4 | D14, D41 |
+| Toolshed | One rootless Podman container (`python:3.13-slim`), shedd on the standard library, SQLite with FTS5 | D28, D29, D40 |
+| Packages | uv 0.12.24 on the host and in the image, package tiers | D40, D43 |
 
 ## 13. Proposals
 | # | PROPOSAL | Rationale |
 |---|---|---|
-| PR-4 | The toolshed server is in TypeScript. | It shares the `contract/` schemas with the CLI. |
-| PR-5 | A launcher and a guard, not a custom binary. | The stock Pi TUI stays. |
-| PR-6 | No codemode. The toolshed tools are `direct`. | Codemode executes model JavaScript on the host. |
-| PR-7 | The Pi `deepseek` provider for all calls, not the OpenAI SDK. | One usage format and one point for the governor. |
-| PR-8 | The reviewer uses `deepseek-v4-pro`. Fallback: `deepseek-flash` with thinking `max`. | A different model has different blind spots. |
+| PR-4 | Replaced by D40. | — |
+| PR-5 | Closed by D32 (no Pi). | — |
+| PR-6 | Closed by D32 (no Pi). | — |
+| PR-7 | Closed by D32 (no Pi). | — |
+| PR-8 | Replaced by D41. | — |
 | PR-10 | A dedicated DeepSeek account with a small prepaid balance. | DeepSeek has no spend limit. An empty balance is the only provider stop. |
-| PR-11 | A synthetic CV persona for the demo. | DeepSeek keeps data in the PRC and can use it for training. |
-| PR-14 | LATER: key injection. A proxy adds a key to the outbound request of a tool. The tool code never sees the key. | The mentor prefers injection (D27). |
-| PR-15 | Twist: a price tag on each tool. `/shed` shows the build cost and the USD that each reuse saved. The run summary shows the cost with and without the toolset. | It uses the ledger. It shows that the toolset pays for itself. |
+| PR-11 | Closed. The demo (§15) uses public listings, not personal data. | — |
+| PR-14 | LATER: key injection. A proxy adds a key to the outbound request of a tool. The tool code never sees the key. | The mentor prefers injection (D27). D44 keeps third-party keys out of the prototype. |
+| PR-15 | Adopted in D37: the ledger records the savings from reuse. `/cost` and the status line show them. | — |
 | PR-16 | Twist: Frankenstein roles. The generator is "the Doctor", the test writer is "Igor", the reviewer is "the Mob". | Cheap: prompts and theme only. Easy to remember in the video. |
 
 ## 14. Decision log
 | # | Decision | Reason |
 |---|---|---|
-| D1 | The CLI is an agentic CLI on Pi 1.1.0: a local Pi package that a launcher starts. A reskin comes later. | Small core, hooks for the gate and the caps, MCP, a DeepSeek provider. |
+| D1 | Replaced by D32. | — |
 | D2 | Replaced by D13. | — |
 | D3 | Generated code never executes on the host. | Brief hard rule 1. Also, the gaps stay real. |
-| D4 | The team can add seed tools. The tool database labels them `seed`. Seed tools are generic and outside the demo task path. | The brief forbids only false claims of generation. |
-| D5 | The forge has a stack pass. It writes the manifest stack and permissions. | Each tool gets a good stack. |
-| D6 | The gap pass operates before each reply. It has a low threshold. | A false gap costs little, because the triage, the forge and the gate are strict. |
-| D7 | The governor records the USD cost of each run. The ledger is the authority. | The organizers asked for it. |
+| D4 | Replaced by D47. | — |
+| D5 | Replaced by D36. | — |
+| D6 | Replaced by D35. | — |
+| D7 | Replaced by D37. | — |
 | D8 | The toolshed is local. A VPS is an option for later. | Speed and a simple development loop. |
 | D9 | Code execution and the tool database are one module, the toolshed. D28 sets the placement. | Simple design. |
 | D10 | A Makefile dispatches all tasks. | One entry point. |
@@ -264,40 +264,65 @@ Not in git: `workspace/` (the exchange directory) and `.frank/` (CLI state: agen
 | D20 | The test writer is a separate role with a fresh context. Only it can change the test set. | The tests do not see the code. The generator cannot weaken them. |
 | D21 | Tools are Python only for the hackathon. | One runtime, one lock tool. |
 | D22 | The team writes the tool database, its operations, the catalog and the operator commands. The agent builds or extends one management tool or more (§15). No import, export or check tools in the prototype. | Brief definition of done 3. |
-| D23 | After `register`, the main agent continues the run in a fresh context. The fresh context has the new tool. | The new tool is available in the same run. |
-| D24 | A USD cap can overshoot by one LLM call. We accept this. | A simple governor. |
+| D23 | Replaced by D33. | — |
+| D24 | Replaced by D37. | — |
 | D25 | Development and the demo use the dev machine. `make deps` installs rootless Podman. | No daemon, no socket, a built-in timeout. |
 | D26 | The first version is a minimal prototype that meets the brief (§16). | Little time. We extend the prototype after the hackathon. |
 | D27 | Mentor answer (rwngwn, 2026-10-08): a remote sandbox is not necessary. The agent must not see keys directly. Ideally, the system injects keys. | It answers brief hard rule 1. |
 | D28 | The toolshed is one long-lived rootless Podman container. The toolshed server is in it. Generated code executes as the tool user. | Dead simple. Replaces D19 (a new container for each call). |
 | D29 | The tool database is SQLite only. Rollback moves an active pointer. | Dead simple. Replaces PR-3 (git and SQLite). |
-| D30 | The triage is a separate step in each build. The build log records its result. | The operator wants the triage visible. |
-| D31 | Admin API and agent channel use HTTP on 127.0.0.1. The admin API needs the admin token. | Simple. The token stops generated code from calling `register`. |
+| D30 | Replaced by D35. | — |
+| D31 | Replaced by D33. | — |
+| D32 | The CLI (Module A) is a Python 3.13 program that we write: an agent loop of about 200 lines, an OpenAI-compatible client that keeps `reasoning_content`, and a UI with `rich` and `prompt_toolkit`. Replaces D1. | v7 removes or replaces the main Pi features: MCP, the built-in tools, the system prompt and the governor. Pi adds a second language, a spike, undocumented hooks and proxy configuration. One language is faster. |
+| D33 | The main agent has a fixed toolset: `lookup`, `use_tool`, `big_chef`, `ws_read`, `ws_write`. There is no MCP and no agent channel. The tool schemas and our system prompt (about 200 tokens) do not change in a session. The admin API stays HTTP on 127.0.0.1 with the admin token. Replaces D23 and D31. | The prompt cache stays valid. A new tool is available at once through `use_tool`, without a fresh context. No shell and no host file access, by construction. |
+| D34 | Tools have two grades. A small tool is generic. A big tool is task-level and calls small tools (`uses` is not empty). Lookup shows big tools first. | Reuse saves tokens and USD. A big tool gives a complete result in one call. |
+| D35 | Lookup uses no LLM: FTS5 bm25 over name, summary, keywords, description and skill, plus a coverage score. The reply has 3 rows or fewer (about 120 tokens), a fit (`good`, `partial`, `none`) and a lookup ID. `lookup(tool=X)` returns the skill and the schemas of one tool. Gap rule: `big_chef` needs a lookup ID from the current session with fit `none` or `partial`, or a failed invocation of the tool to repair. Replaces D6 and D30. | No LLM tokens for each reply. Code makes sure that each gap comes from a task (brief hard rule 3). |
+| D36 | The Big Chef builds tools in the toolshed, in five phases: P1 plan, P2 tests, P3 code, P4 security, P5 handoff (§9). Each role gets a fresh context with the stable prefix first. P1 also sets the deps and the permissions. D20 stays. shedd streams one trace line for each step to the CLI. Replaces the forge of v6 and D5. | The builder is near the runner, the tool database and the packages. Short loops use fewer tokens. The CLI only shows the trace and the gate. |
+| D37 | The meter is the single point for spend and the only holder of the key. It is a thread in the CLI process. Each LLM call (main agent, Big Chef, agentic tools) needs a grant: `session`, `run`, `build` or `tool_run`. The meter reserves an estimate against each cap in the grant chain, clamps `max_tokens`, adds the key, and settles from `usage` after the call. A failed cap gives a clean 402. Caps: USD 0.60 for each build, 2.00 for each run, 5.00 for each session, 20.00 in total. The ledger is the authority for cost. It also records the savings from reuse. Replaces D7 and D24. | One enforcement point for all callers. The reserve stops most overshoots. A call can cost more than its estimate. We accept this. |
+| D38 | Chaining scope. Tool code calls other tools only with `shed.call` through the runtime socket. Each process has its own run token. shedd refuses a name that is not in `uses`. Limits for each root invocation: depth 3, 20 subcalls, the root deadline. `shed.llm` goes through shedd to the meter on the root grant. Thus the root run pays for all spend. `shed.registry()` returns the `/stats` rows, read-only. | Composition without more authority. The spend of a chain shows as one run. A management tool can read the registry, but it cannot change it. |
+| D39 | Approvals. Install gate: the operator approves a build before `register` (Install + run once, Install + always allow, Show code·tests·log, Reject). Use gate: the CLI asks before each `use_tool`, except when "always allow" is set for the permission hash in `.frank/permissions.json`. The gate of a big tool lists its sub-tools. The CLI never asks about a sub-tool. `/allow` lists and revokes entries. | Real operator control. A change of permissions makes a new permission hash. Thus the operator sees the gate again. |
+| D40 | Python 3.13 everywhere. uv is the only package manager, on the host and in the image (pinned 0.12.24). One uv workspace at the repo root, with one `uv.lock`. shedd and the SDK use only the standard library. No pip, venv or apt Python packages. Replaces PR-4. | One language and one lock file. Fewer dependencies in the container. |
+| D41 | P4 security has two parts: static AST checks and a `deepseek-flash` reviewer. The static checks refuse `subprocess`, `eval`, `exec`, environment access, host paths, and a `shed.call` name that is not a literal in `uses`. `deepseek-v4-pro` is a switch, not the default. A reject gives one more coder iteration. Replaces PR-8. | Static checks are free and deterministic. Flash is cheap. The runtime socket also enforces `uses` (D38). |
+| D42 | Invocation output and records. When the JSON result is more than 6 KB, shedd writes it to `/work/out/` and returns a preview and the path. The `invoked` event records the ID, the status, the duration and the error, but not the arguments. | Large outputs do not fill the context. The agent can read the file with `ws_read`. Arguments can contain personal data. |
+| D43 | Package tiers. Tier A (common web, data and test packages) is in the image. P1 finds packages with `pkg_search` (top 8 from `packages.json`: 908 packages, 21 categories). P3 installs one with `request_package`: catalog names only, with `uv pip install --system`. | The common path is fast. Each extension has a known name and a record. |
+| D44 | The toolshed network is open. Tools that need a third-party key are not in the prototype. PR-14 (key injection) stays LATER. | Tools can get public data. No new credential enters the system. |
+| D45 | The meter listens on a unix socket, `.frank/run/meter.sock` (directory 0700, socket 0600). The container mounts the directory at `/run/meter`. Tools never reach the meter directly. Replaces the TCP port `:7701` of the plan. | Spike, 2026-10-08: `host.containers.internal` reaches a host listener only on `0.0.0.0`, which puts the meter on the LAN. With these modes, container root (shedd) connects and the tool user gets EACCES. |
+| D46 | shedd operates as container root. The runner executes all agent code as the tool user (uid 1000) with `setpriv --no-new-privs --clear-groups`, `prlimit`, `timeout` and `env -i`. `make toolshed-up` makes `.frank/admin.token` (0600) one time and gives it to the container as one environment variable. shedd removes it from its environment at start. | Spike, 2026-10-08: `setpriv` and `prlimit` operate in rootless Podman. The tool user cannot read the tool database, the admin token or the meter socket. |
+| D47 | No seed tools. No person and no script puts a tool into the real tool database. Each version comes from a Big Chef build through the install gate. Test fixtures go only into a temporary database. Replaces D4. | Brief: seeded code is "the one unforgivable fake". The registry is empty before the first run. |
+| D48 | Roles and models. The main agent, P1 plan and improve planning use `deepseek-v4-pro` with effort `high`. P2 tests use `deepseek-flash` `low`. P3 code uses `deepseek-flash` `high`, and `deepseek-v4-pro` `high` after the first red test run or smoke failure. P4 security uses `deepseek-flash` `high`. `shed.llm` uses `deepseek-flash` `low`. Clamps: plan and code 32768 tokens. Each role has an env override (contract §4). The model table of §7 is replaced. | Strategic steps need the strong model. The coder used all 16384 tokens 7 times and gave no `tool.py`. |
+| D49 | The Big Chef builds in parallel. It installs the deps first, one at a time. Then 4 threads make each new small tool and the entry tool. The live smoke run of the entry waits for the small tools. One P1 turn runs its probes in parallel. Adds to D36. | A serial build took more than 4 minutes. |
+| D50 | Improve mode. `big_chef` `repair_of` takes `{tool, invoke_id, problem}`. shedd accepts an ok invocation only from the same session and only with a problem. A repair of a failed invocation is refused when the error is a `ValueError` (an argument error). The CLI adds the recorded args. The CLI marks problems in a result (empty results, a field that is null in all rows, warnings). The new version n+1 keeps the old tests and adds tests. Changes the gap rule of D35. | Before, a tool that ran but gave wrong data had no repair path. The agent made a failed call to unlock repair. |
+| D51 | Dev mounts. `make toolshed-up` mounts the server, the SDK and `llm.py` read-only from the host tree. `make toolshed-restart` loads new code. The container is made again when its mounts, image or role env change. The data volume stays. | The container ran old code after each edit until `make image`. |
 
 ## 15. Demo
-1. `/shed` shows the tool database before the run. It contains no tools, or only generic seed tools.
-2. **Session 1:** "Make me a CV from my notes." The forge makes tools. The build log shows each test run, with the failures. The operator approves at the gate.
-3. **Session 2 (a new `make run`):** "Change my CV for this job advertisement. Write a cover letter." The triage records `covered` for the session 1 tools. The forge makes one new tool.
-4. A tool fails with new input. The forge repairs it and makes version 2. The operator rolls back to show the rollback function.
-5. **Session 3:** "Which of my tools fail most often?" The gap pass reports a gap. The forge makes a management tool. It reads the tool database and gives the answer.
-6. `/cost` shows the USD cost of each run, of the session and in total.
+1. `make toolshed-reset && make shed` shows an empty tool database.
+2. **Session 1:** "Cheapest house in Brno-venkov under 8M CZK." Lookup gives fit `none`. The Big Chef trace shows the tests fail, then pass, and the security verdict. The operator approves at the install gate and the use gate. The answer has the listing URLs. `/cost` shows the spend.
+3. **Session 2 (a new `make run`):** "5 cheapest used Octavia combi in Prague." Lookup gives fit `partial`. The Big Chef makes a big tool from the session 1 small tools and does not build them again. `/cost` shows "saved $X".
+4. **Session 3:** "Which tools cost most, and which fail most?" The Big Chef builds `toolshed_insights`. It reads the registry, read-only.
+5. A real failure makes a repair: version 2. Then `/rollback` moves back to version 1.
+6. `/cost` shows the cost of each run, of the session and in total, and compares it with the change of the DeepSeek balance.
+
+In the video, we speed up the waits. We never cut a failure.
 
 ## 16. Prototype scope and plan
 | In the prototype | LATER |
 |---|---|
-| Launcher, guard, workspace tools | Reskin of the Pi TUI |
-| Gap pass, triage, forge roles, gate | Discovery hook: agent tools improve the gap pass |
-| Governor: caps, ledger, build log | `make check`, `make test-boundary` |
-| One toolshed container, SQLite tool database, rollback | Network and limits for each tool, VPS, micro-VM |
-| Operations in §8 | Import, export and check tools for the tool database |
-| Commands: `/shed`, `/gaps`, `/skip`, `/cost`, `/rollback` | Key injection (PR-14), voice (ElevenLabs) |
-| Demo steps 1–6 (§15) | Rollback of the full toolset |
+| CLI: agent loop, meter, gates, status line, `/shed`, `/cost`, `/rollback`, `/allow` | TUI polish, voice (ElevenLabs) |
+| shedd: admin API, lookup, runner, runtime socket, `register`, `rollback`, `history` | `network` and `files` permissions for each tool, VPS, micro-VM |
+| Big Chef P1–P5 and repair | `deepseek-v4-pro` reviewer as the default |
+| Two grades, chaining, agentic tools through the meter | Key injection (PR-14), tools with third-party keys |
+| Package tiers, `pkg_search`, `request_package` | Import and export of tools, rollback of the full toolset |
+| Makefile (§11), a small `make test` | Live boundary tests |
 
-| Hours | Work |
-|---|---|
-| 0–1 | Launcher with DeepSeek, guard, workspace tools. Toolshed container with `exec`, `test`, `install` and the tool database. |
-| 1–4 | Forge: triage, stack pass, test writer, generator loop, reviewer, gate, `register`. Agent channel. |
-| 4–5 | Gap pass, governor, ledger, build log. Commands `/shed`, `/cost`, `/rollback`. |
-| 5–6 | Composition in a fresh session, repair, management tool. |
-| 6–7 | Twist (PR-15, PR-16). |
-| 7–9 | Dry runs, video, submission. |
+`make test` (host, no network, no container): meter caps, usage, 401; `register` refusal; a call outside `uses`; depth and subcall limits; append-only triggers; the static check catches `subprocess` and a dynamic `shed.call`.
+
+| Time | Work | Exit |
+|---|---|---|
+| 0:00 | Containerfile, `tiers.py`, image build in the background | — |
+| 0:10–1:00 | CLI core: client, meter, ledger, meter socket. Toolshed spike (done: D45, D46). | A chat with a cost line |
+| 1:00–2:00 | shedd core: tool database, FTS, lookup, runner, runtime socket, `invoke`, `register`, `rollback` | A chained, metered fixture invoke (temporary database) |
+| 2:00–2:40 | CLI tools, gates, status line, commands | M1: lookup → use_tool → chain → cost |
+| 2:40–4:40 | Big Chef P1–P5, install gate | M2: `fetch_page` built. M3: the real-estate tools built and used in one session. |
+| 4:40–5:40 | Prompt tuning, savings, repair, read-only registry | The second build uses the small tools again |
+| 5:40–6:50 | Dry runs, fixes, lookup thresholds | The script passes two times |
+| 6:50–8:00 | Docs, `demo-reset`, video | — |

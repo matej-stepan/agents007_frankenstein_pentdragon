@@ -1,0 +1,4 @@
+{
+  "deepseek-flash": {"peak": {"hit": 0.006, "miss": 0.30, "out": 1.20}, "offpeak": {"hit": 0.003, "miss": 0.15, "out": 0.60}},
+  "deepseek-v4-pro": {"peak": {"hit": 0.044, "miss": 1.32, "out": 3.96}, "offpeak": {"hit": 0.022, "miss": 0.66, "out": 1.98}}
+}

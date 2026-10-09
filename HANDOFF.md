@@ -1,7 +1,7 @@
 # Taltempla handoff
 
-Status: 2026-10-08, 19:58 MDT. Language: ASD-STE100.
-Last commit: `2e6737a` on `main`, pushed to `origin`. Not committed after it: the second pass (all roles on `deepseek-v4-pro` high, the big-tools-only agent, the meter fit clamp, new caps), the third pass (G1–G3: the Waiter, the build options gate, the Chef wall time settings; D55–D57), this file, one line in `CLAUDE.md` and one question in `OPEN_QUESTIONS.md`. Use `git status` to see the files.
+Status: 2026-10-08, 21:25 MDT. Language: ASD-STE100.
+Last commit: `cf18d25` on `main`, pushed to `origin` (passes 2–4, D52–D64). After it: a fresh state (`make demo-reset`, backup in `.frank/backup-20261008-212404/`) and this update.
 Read this file first. Then read `contract/INTERFACES.md` (the binding interfaces) and `ARCHITECTURE.md` §14 (decisions D32–D63).
 
 ## 1. Summary
@@ -123,9 +123,8 @@ After you change server or SDK code: `make toolshed-restart` (about 2 s). The co
 | `workspace/` → `/work` | Exchange directory. Tools write to `out/`. | No |
 
 ## 8. Current state of the data
-- **Registry (7 active tools):** `fetch_page` v1, `html_embedded_json` v1, `price_normalize` v1, `reality_listing_search` v2 (v1 is kept), `fetch_json` v1, `download_file` v1, `random_image_fetch` v1. The Chef built all of them. The operator built the last three during a test drive.
-- **Registry grades:** 2 big tools (`reality_listing_search`, `random_image_fetch`); the main agent can run only these two. The other 5 are small building blocks.
-- **Ledger:** USD 0.84 in 406 calls, 86% cache hits.
+- **Registry:** empty (fresh state, 2026-10-08 21:24). The old 7 tools, the ledger, the permissions and `workspace/out` are in `.frank/backup-20261008-212404/` (`shed.sql`, `shed-data.tar`, `ledger.db`).
+- **Ledger:** empty. The session before the reset spent about USD 1.10 in total (all ledger rows).
 - **DeepSeek balance:** USD 15.35 at 19:10 (from `/user/balance`). The balance updates later than the ledger.
 
 ## 9. Verification history
@@ -178,7 +177,7 @@ After you change server or SDK code: `make toolshed-restart` (about 2 s). The co
 7. **Contract gaps in `contract/INTERFACES.md`:** `run_tests(live=…)`, the test-run kind `offline`, `samples` in `submit_plan`, the `parent` field in tree rows.
 8. **Image:** the image still contains old server code. The dev mounts replace it at run time. Before the demo recording, do `make image` and then `make toolshed-up`.
 9. **`download_file`:** it saves files without an extension (for example `workspace/out/images/cat`). This is a good live example for improve mode.
-10. **Stray test file:** `workspace/out/images/2024/a.png` came from a tool test before the `MockShed` fix. The container user owns it. Remove it with `podman unshare rm -rf workspace/out/images/2024`.
+10. **Stray test file:** done. `demo-reset` moved it to the backup.
 11. **Interactive CLI:** the Ctrl-C and exit-word fix has offline tests only. Do a check in a real terminal.
 12. **Proposals not done (from the review):** `workspace/out/<session>/` directories.
 13. **Live check of G1/G2 (not done).** One short live run in a real terminal: the build gate (Start, Change, Cancel), one failed build, the Waiter cause, and one retry with advice. Make sure that the first P1 trace line shows the effort and the times, and that `make toolshed-restart` loaded the new server code.

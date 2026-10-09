@@ -109,6 +109,48 @@ Override on the command line, for example `make run CAP_RUN=1 BUILD_SECONDS=600`
 
 ---
 
+## Walkthrough
+
+These are real terminal screenshots, taken on a fresh registry.
+
+### Session 1: a gap becomes a tool
+
+**"Who is the richest person in Peru?"** No tool fits, so the Big Chef plans against live sources. It writes tests that must fail on a stub, then codes until they pass. When the build reaches its wall time, it pauses and asks the operator to raise it instead of throwing the work away. Every tool that passes is saved as a checkpoint, and the spinner shows the phase, the idle time, the cost and the time budget.
+
+![The Big Chef building: probes, tests failing on a stub, a time-cap raise, green tools](docs/screenshots/01-build-time-cap-raise.png)
+
+The install gate shows the operator the whole tool tree before anything is installed. The two small building blocks have no network access; the big entry tool chains them. Each row shows its tests, iterations, security verdict and cost.
+
+![Install gate: tool tree, permissions, tests n/n, review verdict, build cost](docs/screenshots/02-install-gate.png)
+
+The tools are installed, the agent runs the new tool in the sandbox, and it answers with the source.
+
+![Installed and used in the same session](docs/screenshots/03-installed-and-answered.png)
+
+### Session 2: fresh process, reuse
+
+A new session with a different question (**Czechia**). The preflight checks pass, and lookup finds the tool from session 1 (`fit=good`). The agent reuses it with no rebuild, and the status line shows the build cost the reuse saved. The whole answer costs USD 0.004.
+
+![Fresh session: lookup finds the earlier tool and reuses it](docs/screenshots/04-fresh-session-reuse.png)
+
+### Gap detection and composition
+
+**"Who is the richest person in Oklahoma?"** needs data the country-level tool does not give. The gap rule refuses a build while lookup reports a good fit. Only a lookup that shows the real gap (`fit=partial`) opens the build gate.
+
+![Gap rule: big_chef refused on fit=good, allowed on fit=partial](docs/screenshots/05-gap-detection.png)
+
+The new task-level tool is **composed from earlier tools**. The plan reuses `extract_records` and `normalise_money` from session 1 and builds only the missing parts.
+
+![Composition: the plan reuses the small tools from session 1](docs/screenshots/06-compose-from-existing-tools.png)
+
+### Failure handling
+
+When a build fails, the Waiter diagnoses the trace and, with the operator's approval, retries the Chef with its advice. The planner sees the advice and reuses the existing building blocks.
+
+![Retry with the Waiter's advice](docs/screenshots/07-waiter-advice-retry.png)
+
+---
+
 ## Sandboxed execution
 
 Generated code **never runs on the host**. TIGRIS has two modules:

@@ -60,3 +60,4 @@ workspace/
 *.wav
 *.webm
 *.pdf
+!docs/screenshots/*.png

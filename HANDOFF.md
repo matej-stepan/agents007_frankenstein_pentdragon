@@ -124,7 +124,7 @@ After you change server or SDK code: `make toolshed-restart` (about 2 s). The co
 
 ## 8. Current state of the data
 - **Registry:** empty (fresh state, 2026-10-08 21:24). The old 7 tools, the ledger, the permissions and `workspace/out` are in `.frank/backup-20261008-212404/` (`shed.sql`, `shed-data.tar`, `ledger.db`).
-- **Ledger:** empty. The session before the reset spent about USD 1.10 in total (all ledger rows).
+- **Ledger:** empty. Before the reset: USD 1.09 in 422 calls (the backup ledger).
 - **DeepSeek balance:** USD 15.35 at 19:10 (from `/user/balance`). The balance updates later than the ledger.
 
 ## 9. Verification history

@@ -359,20 +359,29 @@ class Agent:
             ui.warn(f"  big_chef refused: {MAX_BUILDS} builds per prompt")
             return {"failed": f"build limit: {MAX_BUILDS} builds per prompt. Answer now with the installed tools "
                               "and state what is missing."}
+        # the model sometimes leaves out task or need (seen in improve mode): fill each from the other fields
+        problem = str((rep or {}).get("problem") or "")
+        task = str(a.get("task") or a.get("need") or problem or (f"repair {rep.get('tool')}" if rep else ""))
         body = {
-            "task": a.get("task", ""),
-            "need": a.get("need", ""),
+            "task": task,
+            "need": str(a.get("need") or task),
             "lookup_id": a.get("lookup_id", ""),
             "session_id": self.session_id,
         }
         if rep:  # the model names the run; the CLI attaches the args it recorded (the model never supplies them)
             iid = str(rep.get("invoke_id") or "")
-            body["repair_of"] = {"tool": rep.get("tool"), "invoke_id": iid, "problem": str(rep.get("problem") or ""),
+            body["repair_of"] = {"tool": rep.get("tool"), "invoke_id": iid, "problem": problem,
                                  "args": self.invocations.get(iid)}
+        try:  # the shed's rules before the build gate: a refused build must not ask the operator first
+            self.shed.chef_check(body)
+        except ShedError as e:
+            if e.status != 404:  # 404 = an older toolshed without /chef/check: its /chef/build still checks
+                ui.warn(f"  big_chef refused: {ui.short(e.msg, 200)}")
+                return {"failed": f"refused before the build: {e.msg}", "status": e.status}
         what = (
             f"{'improve' if rep.get('problem') else 'repair'} {rep.get('tool')}"
             if rep
-            else f"“{ui.short(a.get('need', ''), 70)}”"
+            else f"“{ui.short(body['need'], 70)}”"
         )
         opts, counted, cost, advice, out, resume, ck = self.build_defaults, False, 0.0, "", None, None, None
         while True:  # one pass per operator-approved attempt (G1 retry); MAX_BUILDS counts this call once
@@ -391,7 +400,7 @@ class Agent:
             extra = ({"advice": advice} if advice else {}) | ({"resume_of": resume} if resume else {})
             try:
                 handoff, failed, events, started, nck = self._chef_stream(
-                    body | extra, opts, ui.short(a.get("need", ""), 60), count=not counted)
+                    body | extra, opts, ui.short(body["need"], 60), count=not counted)
             except ShedError as e:  # a refused retry keeps the earlier failure, its cost and its diagnosis
                 if out is None:
                     raise

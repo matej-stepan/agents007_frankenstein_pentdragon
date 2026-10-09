@@ -80,7 +80,7 @@ class Shedd:
                 r["preview"] = text[:PREVIEW]
         return r
 
-    def check_build(self, body) -> dict | None:
+    def check_build(self, body, check_only: bool = False) -> dict | None:
         """Gap rule (contract section 5). Returns the repair_of for BuildCtx {tool, invoke_id, problem, args, error}."""
         repair = body.get("repair_of")
         if repair:
@@ -107,7 +107,7 @@ class Shedd:
                 raise HTTPError(400, "gap rule: lookup_id is from another session")
             if lu["fit"] not in ("none", "partial"):
                 raise HTTPError(400, f"gap rule: lookup fit is {lu['fit']}; use the existing tool")
-        for k in ("task", "need", "build_id", "grant"):
+        for k in ("task", "need") if check_only else ("task", "need", "build_id", "grant"):
             if not body.get(k):
                 raise HTTPError(400, f"{k} is required")
         return repair or None
@@ -130,6 +130,11 @@ class Shedd:
         else:
             return rid, ""
         return None, f"resume_of {str(rid)[:40]!r} ignored: {why}"
+
+    def chef_check(self, body) -> dict:
+        """The rules of /chef/build without a build: the CLI asks before the build gate, so a refusal costs no prompt."""
+        self.check_build(body, check_only=True)
+        return {"ok": True}
 
     def chef_build(self, body, stream):
         repair = self.check_build(body)
@@ -298,7 +303,7 @@ def make_handler(app: Shedd):
                     body = self._body()
                     if path == "/chef/build":
                         return app.chef_build(body, self._stream)
-                    routes = {"/lookup": app.lookup, "/invoke": app.invoke, "/register": app.register,
+                    routes = {"/chef/check": app.chef_check, "/lookup": app.lookup, "/invoke": app.invoke, "/register": app.register,
                               "/reject": app.reject, "/rollback": app.rollback}
                     if path in routes:
                         return self._send(200, routes[path](body))

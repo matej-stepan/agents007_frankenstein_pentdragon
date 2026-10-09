@@ -72,6 +72,10 @@ class ShedClient:
         body = {"name": name, "args": args, "grant": grant, "run_id": run_id, "session_id": session_id}
         return self._json("POST", "/invoke", body, timeout=900)
 
+    def chef_check(self, body: dict) -> dict:
+        """The gap rule and the required fields of /chef/build, without a build. Raises ShedError on a refusal."""
+        return self._json("POST", "/chef/check", body)
+
     def chef_build(self, body: dict) -> Iterator[dict]:
         """Stream the NDJSON events of one build."""
         with self._open("POST", "/chef/build", body, timeout=900) as r:

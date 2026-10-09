@@ -46,6 +46,12 @@ class FakeShed:
     def __init__(self, status=None):
         self.status, self.bodies = status, []
 
+    def chef_check(self, body):
+        self.checked = body
+        if self.status:
+            raise ShedError(self.status, "gap rule: refused")
+        return {"ok": True}
+
     def chef_build(self, body):
         self.bodies.append(body)
         if self.status:
@@ -243,3 +249,22 @@ def test_chef_status_text(monkeypatch):
     monkeypatch.setattr(ui, "plain", True)
     with s:
         assert s._st is None  # plain mode (--once): no live display
+
+
+def test_refused_build_does_not_ask_the_operator(tmp_path, monkeypatch):
+    # live: the gate asked for cap/effort, then shedd refused with "gap rule: lookup fit is good"
+    from taltempla import gate
+
+    monkeypatch.setenv("TALTEMPLA_GATE", "ask")
+    monkeypatch.setattr(gate, "build_options", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
+    shed = FakeShed(400)
+    assert agent(shed, tmp_path).call_tool("big_chef", {"task": "t", "need": "n", "lookup_id": "l"})["status"] == 400
+    assert shed.bodies == []
+
+
+def test_improve_without_task_fills_it(tmp_path):
+    # live: big_chef {need, repair_of{..., problem}} without task gave "shed 400: task is required"
+    shed = FakeShed()
+    a = agent(shed, tmp_path)
+    a.call_tool("big_chef", {"need": "", "repair_of": {"tool": "x", "invoke_id": "i1", "problem": "empty results"}})
+    assert shed.checked["task"] == "empty results" and shed.checked["need"] == "empty results"

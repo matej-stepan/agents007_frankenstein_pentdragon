@@ -1,5 +1,8 @@
 """Rich console helpers and the status line."""
 
+import contextlib
+import time
+
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
@@ -48,6 +51,73 @@ def spinner(msg: str):
 
         return nullcontext()
     return console.status(Text(msg, style="dim"), spinner="dots")
+
+
+class ChefStatus:
+    """The chef spinner of one build stream (interactive mode only). Its text is computed at each refresh (__rich__).
+    rich allows ONE live display: paused() around a gate prompt; `with` stops it on every exit path (Ctrl-C too).
+    Any rich error = no spinner (it never stops a build)."""
+
+    def __init__(self, cap_s: int):
+        self.phase, self.tool, self.cost, self.cap_s = "start", "", 0.0, int(cap_s or 0)
+        self.t0 = self.last = time.monotonic()
+        self._st = None
+
+    def on(self, ev: dict) -> None:
+        """One stream event: a new step (trace lines carry the phase and the build cost so far)."""
+        self.last = time.monotonic()
+        if ev.get("type") == "trace":
+            self.phase = str(ev.get("phase") or self.phase)
+            with contextlib.suppress(TypeError, ValueError):
+                self.cost = float(ev.get("cost_usd") or self.cost)
+        if ev.get("tool") is not None or ev.get("type") == "trace":
+            self.tool = str(ev.get("tool") or "")
+
+    def sync(self, elapsed_s, cap_s) -> None:
+        """The server's clock (a cap_hit event): the operator's wait does not count on the server either."""
+        with contextlib.suppress(TypeError, ValueError):
+            self.t0, self.cap_s = time.monotonic() - float(elapsed_s), int(cap_s) or self.cap_s
+
+    def __rich__(self) -> Text:
+        now = time.monotonic()
+        tool = f" {self.tool}" if self.tool else ""
+        return Text(f"chef {self.phase}{tool} · {now - self.last:.0f} s since the last step · ${self.cost:.4f} · "
+                    f"{(now - self.t0) / 60:.1f}/{self.cap_s / 60:g} min", style="dim")
+
+    def start(self) -> None:
+        if plain or self._st is not None:
+            return
+        try:
+            self._st = console.status(self, spinner="dots")
+            self._st.start()
+        except Exception:  # noqa: BLE001 - e.g. another live display is active: no spinner
+            self._st = None
+
+    def stop(self) -> None:
+        st, self._st = self._st, None
+        if st is not None:
+            with contextlib.suppress(Exception):
+                st.stop()
+
+    @contextlib.contextmanager
+    def paused(self):
+        """Stop for a prompt, then restart. The pause does not count as build time (like the server's clock)."""
+        was, t = self._st is not None, time.monotonic()
+        self.stop()
+        try:
+            yield
+        finally:
+            d = time.monotonic() - t
+            self.t0, self.last = self.t0 + d, self.last + d
+            if was:
+                self.start()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.stop()
 
 
 def short(obj, n: int = 80) -> str:

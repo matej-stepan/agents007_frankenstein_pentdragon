@@ -34,7 +34,7 @@ def test_hashes_bind_content_and_permissions():
     assert mf.content_hash(m, f) == mf.content_hash({**m, "version": 3, "parent": "x@v1"}, f)
     assert mf.perm_hash(m) != mf.perm_hash({**m, "permissions": {**m["permissions"], "llm_usd": 0.1}})
     assert mf.validate(m, f) == []
-    assert mf.validate({**m, "grade": "big"})  # a big tool needs uses
+    assert mf.validate({**m, "uses": [m["name"]]})  # a tool cannot use itself
 
 
 def test_register_needs_test_review_and_approval(db):

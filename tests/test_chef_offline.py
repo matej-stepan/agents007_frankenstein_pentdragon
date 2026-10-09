@@ -89,10 +89,11 @@ class FakeLLM:
     def __init__(self, script: dict):
         self.script, self.bodies, self.lock = {k: list(v) for k, v in script.items()}, [], threading.Lock()
 
-    def __call__(self, grant, body, role, tool=None):
+    def __call__(self, grant, body, role, tool=None, **k):
         with self.lock:
             self.bodies.append((role, tool, json.loads(json.dumps(body))))  # a copy: the Chef appends later
-            return self.script[(role, tool) if (role, tool) in self.script else role].pop(0)
+            r = self.script[(role, tool) if (role, tool) in self.script else role].pop(0)
+        return r() if callable(r) else r   # a callable step may wait or raise (outside the lock)
 
     def models(self, role, tool=None):
         return [b["model"] for r, t, b in self.bodies if r == role and t == tool]
@@ -109,16 +110,17 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(chef, "ROLE", dict(chef._ROLE_DEFAULT))   # the defaults, whatever the shell env says
     monkeypatch.setattr(runner, "run_tests", fake_run_tests)
     monkeypatch.setattr(runner, "probe", lambda code, files=None, timeout_s=30: runner.ExecResult(0, "1\n", "", False, 3))
+    monkeypatch.setattr(llm, "topup_poll", lambda grant: {"decision": "denied"})   # GATE=auto: no top-up
     db = DB(str(tmp_path / "shed.db"))
     lookup_id = db.save_lookup("s1", "houses in Brno", "none", [])
     n = iter(range(100))
 
     def run(script, **kw):
-        fake, events = FakeLLM(script), []
+        fake, events, bid = FakeLLM(script), [], f"b{next(n)}"
         monkeypatch.setattr(llm, "chat", fake)
         ctx = chef.BuildCtx(db=db, grant="g", task="cheapest house in Brno-venkov", need="search listings",
-                            lookup_id=lookup_id, session_id="s1", build_id=f"b{next(n)}", **kw)
-        return chef.build(ctx, events.append), events, fake
+                            lookup_id=lookup_id, session_id="s1", build_id=bid, **kw)
+        return chef.build(ctx, lambda e: (db.add_trace(bid, e), events.append(e))), events, fake
 
     def ctx():
         return chef.BuildCtx(db=db, grant="g", task="cheapest house in Brno-venkov", need="n", lookup_id=None,
@@ -174,15 +176,29 @@ def test_cut_code_reply_is_not_an_iteration(env):                               
 
 def test_role_models_and_escalation(env):                                           # (b)
     _, run, _ = env
+    assert set(chef._ROLE_DEFAULT.values()) == {("deepseek-v4-pro", "high")}
     h, _, fake = run(walk_script())
     assert h["type"] == "handoff", h
-    plan = [b for r, _, b in fake.bodies if r == "plan"]
-    assert {(b["model"], b["reasoning_effort"], b["max_tokens"]) for b in plan} == {("deepseek-v4-pro", "high", 32768)}
-    # probe turn + first code: flash; the reply after the red test run (BUG): v4-pro
-    assert fake.models("code", "fetch_page") == ["deepseek-flash", "deepseek-flash", "deepseek-v4-pro"]
-    assert fake.models("code", "listing_search") == ["deepseek-flash"]
-    assert {b["model"] for r, _, b in fake.bodies if r in ("tests", "security")} == {"deepseek-flash"}
-    assert all(b["max_tokens"] == 32768 for r, _, b in fake.bodies if r == "code")
+    seen = {(r, b["model"], b["reasoning_effort"], b["max_tokens"]) for r, _, b in fake.bodies}
+    assert seen == {("plan", "deepseek-v4-pro", "high", 32768), ("tests", "deepseek-v4-pro", "high", 32768),
+                    ("code", "deepseek-v4-pro", "high", 32768), ("security", "deepseek-v4-pro", "high", 16384)}
+    # probe turn, first code, and the reply after the red test run (escalate): all v4-pro
+    assert fake.models("code", "fetch_page") == ["deepseek-v4-pro"] * 3
+
+
+def test_cut_tests_and_security_replies_get_one_retry(env):
+    _, run, _ = env
+    h, events, fake = run(walk_script({
+        ("tests", "fetch_page"): [resp("Let me think about fixtures...", finish="length"), resp(TESTS)],
+        ("security", "fetch_page"): [resp('{"verdict": "appr', finish="length"), resp(APPROVE)],
+        "security": [resp(APPROVE)]}))
+    assert h["type"] == "handoff", h
+    assert [t["iterations"] for t in h["tree"]] == [2, 1]
+    tests_msgs = [b for r, t, b in fake.bodies if (r, t) == ("tests", "fetch_page")][-1]["messages"]
+    assert tests_msgs[-1] == {"role": "user", "content": chef.CUT_REPLY["tests"]}
+    sec_msgs = [b for r, t, b in fake.bodies if (r, t) == ("security", "fetch_page")][-1]["messages"]
+    assert sec_msgs[-1] == {"role": "user", "content": chef.CUT_REPLY["security"]}
+    assert sum("cut at the token limit" in e.get("msg", "") for e in events) == 2
 
 
 def test_fan_out_builds_tools_in_parallel(env, monkeypatch):                        # (c)
@@ -225,8 +241,10 @@ def test_plan_trivia_is_fixed_and_semantics_rejected(env):                      
                                                                                      "default": "brno-venkov"}}}}
     errs, _ = c.check_plan({"entry": leaky, "small": [FETCH]}, SAMPLES)               # a task value as a default
     assert any("district" in x and "task" in x for x in errs)
-    errs, _ = c.check_plan({"entry": spec("page_grab", "small"), "small": []}, SAMPLES)  # empty registry
-    assert any("registry is empty" in x for x in errs)
+    for grade in ("small", None):                     # the entry is always big, also without uses
+        alone = {k: v for k, v in spec("page_grab", grade).items() if v is not None}
+        errs, plan = c.check_plan({"entry": alone, "small": []}, SAMPLES)
+        assert errs == [] and plan["entry"]["grade"] == "big", errs
 
 
 def test_improve_ok_invocation_keeps_old_tests(env):                                 # (e)
@@ -307,3 +325,101 @@ def test_late_plan_rejection_gets_a_fix_turn(env, monkeypatch):
     monkeypatch.setattr(llm, "chat", fake)
     plan = chef.Chef(ctx(), lambda e: None).plan()
     assert plan["entry"]["name"] == "listing_search" and plan["new"][0]["grade"] == "small"
+
+
+def test_build_options_clamp_and_never_raise():
+    d = (None, chef.CAP_SECONDS, chef.PLAN_SECONDS)
+    assert chef.build_options(None)[:3] == d and chef.build_options("x")[:3] == d and chef.build_options({})[3] == []
+    e, cap, plan, notes = chef.build_options({"effort": " MAX ", "cap_seconds": "90.4", "plan_seconds": 500})
+    assert (e, cap, plan) == ("max", 90, 90) and len(notes) == 1            # plan <= cap
+    e, cap, plan, notes = chef.build_options({"effort": "medium", "cap_seconds": 10, "plan_seconds": float("nan")})
+    assert (e, cap, plan) == (None, 60, 60) and len(notes) == 3             # default plan = min(PLAN_SECONDS, cap)
+    assert chef.build_options({"cap_seconds": True, "plan_seconds": [1]})[1:3] == d[1:]
+    assert chef._dur(360) == "6 min" and chef._dur(90) == "90 s"
+
+
+def test_effort_override_and_waiter_advice(env):
+    _, run, _ = env
+    h, events, fake = run(walk_script(), effort="low", cap_seconds=600, advice="  Use the JSON API, not HTML.  ")
+    assert h["type"] == "handoff", h
+    assert {(b["model"], b["reasoning_effort"]) for _, _, b in fake.bodies} == {("deepseek-v4-pro", "low")}
+    assert events[0]["msg"].startswith("effort low · 10 min (plan 150 s)") and "advice" in events[0]["msg"]
+    sys_msg, first = next(b for r, _, b in fake.bodies if r == "plan")["messages"][:2]
+    assert "JSON API" in first["content"] and "Advice from the Waiter" in first["content"]
+    assert sys_msg["content"] == chef._sys("plan")["content"]              # the cached prefix stays byte-stable
+    for role in ("tests", "code"):
+        assert "JSON API" in next(b for r, _, b in fake.bodies if r == role)["messages"][1]["content"]
+
+
+def test_cap_hit_asks_the_operator_then_retries_or_fails(env, monkeypatch):
+    _, run, ctx = env
+    monkeypatch.setattr(chef, "TOPUP_POLL", 0.01)
+    answers = [{"decision": "pending"}, {"decision": "raised", "usd": 0.5, "seconds": 0}]
+    monkeypatch.setattr(llm, "topup_poll", lambda grant: answers.pop(0) if answers else {"decision": "denied"})
+
+    def refuse():
+        raise llm.CapExceeded({"cap": "build", "limit": 0.5, "spent": 0.49})
+
+    s = walk_script()
+    h, events, fake = run({**s, "plan": [refuse] + s["plan"]})
+    assert h["type"] == "handoff", h
+    hits = [e for e in events if e["type"] == "cap_hit"]
+    assert [(e["kind"], e["cap_usd"], e["spent_usd"], e["n"]) for e in hits] == [("usd", 0.5, 0.49, 1)]
+    assert sum(r == "plan" for r, _, _ in fake.bodies) == 4                     # the refused turn ran again
+    assert next(e["stage"] for e in events if e["type"] == "checkpoint") == "plan"
+    f, events, _ = run({"plan": [refuse]})                                      # denied: today's failure
+    assert f["type"] == "failed" and f["reason"].startswith("cap: meter refused"), f
+    c = chef.Chef(ctx(), events.append)                                         # wall time: +300 s, clock shifted
+    answers[:] = [{"decision": "raised", "usd": 0, "seconds": 300}]
+    c.t0 -= 400
+    c.check_time()
+    assert c.ctx.cap_seconds == chef.CAP_SECONDS + 300 and events[-2]["kind"] == "time" and c.topups == 1
+
+
+def test_reserve_only_402_retries_and_an_old_answer_is_not_reused(env, monkeypatch):
+    _, run, ctx = env
+    monkeypatch.setattr(chef, "TOPUP_POLL", 0.01)
+
+    def busy():   # other workers' reserves were in the way: spent + need fits the limit
+        raise llm.CapExceeded({"cap": "build", "limit": 1.0, "spent": 0.4, "reserved": 0.5, "need": 0.2})
+
+    s = walk_script()
+    h, events, fake = run({**s, "plan": [busy, busy] + s["plan"]})
+    assert h["type"] == "handoff", h
+    assert not [e for e in events if e["type"] == "cap_hit"] and sum(r == "plan" for r, _, _ in fake.bodies) == 5
+    c = chef.Chef(ctx(), events.append)   # the meter keeps its last answer: a seq already used is still pending
+    c.topup_seq = 1
+    answers = [{"decision": "raised", "usd": 0.5, "seconds": 0, "seq": 1}, {"decision": "denied", "seq": 2}]
+    monkeypatch.setattr(llm, "topup_poll", lambda grant: answers.pop(0))
+    with pytest.raises(chef.BuildFailed):
+        c.ask_topup("usd", 0, chef.BuildFailed("cap"))
+    assert c.topup_seq == 2 and not answers
+
+
+def test_resume_skips_plan_and_green_tools(env):
+    db, run, _ = env
+
+    def entry_fails_after_fetch_green():
+        for _ in range(500):
+            if any(c.get("tool") == "fetch_page" for c in db.checkpoints("b0")):
+                break
+            time.sleep(0.01)
+        return resp("no tests, sorry")
+
+    f, _, _ = run(walk_script({("tests", "listing_search"): [entry_fails_after_fetch_green]}))
+    assert f["type"] == "failed" and "listing_search" in f["reason"], f
+    assert [c["stage"] for c in db.checkpoints("b0")] == ["plan", "tool"]
+    h, events, fake = run({("tests", "listing_search"): [resp(TESTS)],
+                           ("code", "listing_search"): [code_reply(ENTRY_CODE, "listing_search")],
+                           "security": [resp(APPROVE)]}, resume_of="b0", advice="use the API")
+    assert h["type"] == "handoff", h
+    msgs = [e["msg"] for e in events if e["type"] == "trace"]
+    assert "resume: plan of b0" in msgs and "resume: fetch_page green from b0" in msgs
+    assert {(r, t) for r, t, _ in fake.bodies} == {("tests", "listing_search"), ("code", "listing_search"),
+                                                     ("security", "listing_search")}
+    assert "use the API" in fake.bodies[0][2]["messages"][1]["content"]         # advice reaches a rebuilt tool
+    assert [c["stage"] for c in db.checkpoints("b1")] == ["plan", "tool", "tool"]   # b1 can be resumed too
+    from shed.app import Shedd  # register: the drafts moved to b1
+    out = Shedd(db, chain=None, admin_token="x").register(
+        {"build_id": "b1", "content_hashes": [t["content_hash"] for t in h["tree"]], "approval": OK})
+    assert [r["name"] for r in out["registered"]] == ["fetch_page", "listing_search"]

@@ -1,6 +1,7 @@
 """Operator gates: the install gate after a Chef handoff, and the use gate before each use_tool."""
 
 import json
+import math
 import os
 import sys
 
@@ -14,14 +15,14 @@ from . import ui
 from .shed_client import ShedClient, ShedError
 
 
-def _mode() -> str:
+def mode() -> str:
     return os.environ.get("TALTEMPLA_GATE", "ask").strip().lower()
 
 
 def ask(message: str, options: list[tuple[str, str]], auto: str) -> str:
     """Return the chosen value. auto mode picks `auto`; Ctrl-C/EOF picks the last option (the safe one)."""
     labels = dict(options)
-    if _mode() == "auto":
+    if mode() == "auto":
         ui.info(f"  gate (auto): {labels[auto]}", "cyan")
         return auto
     safe = options[-1][0]
@@ -31,7 +32,7 @@ def ask(message: str, options: list[tuple[str, str]], auto: str) -> str:
             print(f"  {i}) {label}")
         try:
             raw = input("choice> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, OSError):  # OSError: no usable stdin
             return safe
         return options[int(raw) - 1][0] if raw.isdigit() and 1 <= int(raw) <= len(options) else safe
     from prompt_toolkit.shortcuts import choice
@@ -150,3 +151,79 @@ def use(tool: dict) -> str:
     chain = f" chains {', '.join(uses)} ·" if uses else ""
     msg = f"Run {tool['name']} v{tool.get('version', '?')}?{chain} {perms_text(tool.get('permissions'))}"
     return ask(msg, [("once", "Allow once"), ("always", "Always allow"), ("deny", "Deny")], auto="once")
+
+
+# ---- build options (G2): the operator picks the cap, the effort and the wall time of each Chef build ----------
+EFFORTS = ("low", "high", "max")
+BUILD_DEFAULTS = {"cap_usd": 1.00, "effort": None, "cap_seconds": 360, "plan_seconds": 150}  # effort None = roles
+
+
+def _num(v, default, cast=float):
+    try:
+        f = float(v)
+        return cast(f) if math.isfinite(f) else default
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def clamp_options(d: dict | None, max_cap: float) -> dict:
+    """Lenient: a bad value falls back to the default, never raises. cap_usd in (0, max_cap], minutes in [1, 60],
+    plan_seconds in [30, cap_seconds); a plan time at or over the wall time gets the default share (150/360), else the
+    P1 last-turn nudge never fires. effort None (or not low/high/max) = the server's role defaults (D58)."""
+    d = d if isinstance(d, dict) else {}
+    cap = _num(d.get("cap_usd"), BUILD_DEFAULTS["cap_usd"])
+    cap = min(cap if cap > 0 else BUILD_DEFAULTS["cap_usd"], max(_num(max_cap, 0.0), 0.0))
+    effort = d.get("effort") if d.get("effort") in EFFORTS else None
+    secs = min(max(_num(d.get("cap_seconds"), BUILD_DEFAULTS["cap_seconds"], int), 60), 3600)
+    plan = max(_num(d.get("plan_seconds"), BUILD_DEFAULTS["plan_seconds"], int), 30)
+    if plan >= secs:
+        plan = min(max(round(secs * BUILD_DEFAULTS["plan_seconds"] / BUILD_DEFAULTS["cap_seconds"]), 30), secs)
+    return {"cap_usd": round(cap, 4), "effort": effort, "cap_seconds": secs, "plan_seconds": plan}
+
+
+def options_text(o: dict) -> str:
+    return f"cap ${o['cap_usd']:.2f} · effort {o['effort'] or 'roles'} · {o['cap_seconds'] / 60:g} min"
+
+
+def _read(label: str) -> str | None:
+    """One line of text; None on Ctrl-C/EOF."""
+    try:
+        if ui.plain or not sys.stdin.isatty():
+            return input(label)
+        from prompt_toolkit import prompt
+
+        return prompt(label)
+    except (EOFError, KeyboardInterrupt, OSError):
+        return None
+
+
+def build_options(defaults: dict, what: str, max_cap: float) -> dict | None:
+    """G2 build gate. Returns {cap_usd, effort, cap_seconds, plan_seconds}, or None = the operator cancelled.
+    auto mode: the defaults. Ctrl-C/EOF anywhere: cancel (the safe choice: no spend)."""
+    o = clamp_options(defaults, max_cap)
+    while True:
+        opts = [("start", f"Start: {options_text(o)}"), ("change", "Change cap, effort or time"),
+                ("cancel", "Cancel the build")]
+        pick = ask(f"Build {what}? (run budget left ${max_cap:.2f})", opts, auto="start")
+        if pick != "change":
+            return o if pick == "start" else None
+        n = dict(o)
+        raw = _read(f"cap USD [{o['cap_usd']:.2f}, max {max_cap:.2f}]: ")
+        if raw is None:
+            return None
+        n["cap_usd"] = _num(raw.strip().lstrip("$"), o["cap_usd"]) if raw.strip() else o["cap_usd"]
+        cur = o["effort"] or "roles"  # keep first (the Enter default); cancel last (the Ctrl-C/EOF pick)
+        eff = ask("DeepSeek effort for every Chef role", [("keep", f"{cur} (keep)")] + [
+            (e, "roles (CHEF_<ROLE>_EFFORT defaults)" if e == "roles" else e) for e in ("roles", *EFFORTS) if e != cur
+        ] + [("cancel", "Cancel the build")], auto="keep")
+        if eff == "cancel":
+            return None
+        n["effort"] = o["effort"] if eff == "keep" else (None if eff == "roles" else eff)
+        raw = _read(f"minutes [{o['cap_seconds'] / 60:g}, 1-60]: ")
+        if raw is None:
+            return None
+        mins = _num(raw, 0.0) if raw.strip() else 0.0
+        if mins > 0:  # P1 keeps its share of the wall time
+            n["cap_seconds"] = int(min(max(mins, 1), 60) * 60)
+            n["plan_seconds"] = round(o["plan_seconds"] * n["cap_seconds"] / max(o["cap_seconds"], 1))
+        o = clamp_options(n, max_cap)

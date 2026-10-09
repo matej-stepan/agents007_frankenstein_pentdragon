@@ -136,6 +136,12 @@ class DB:
     def add_trace(self, build_id: str, event: dict) -> None:
         self.x("INSERT INTO builds_log(build_id, event) VALUES (?,?)", (build_id, json.dumps(event, default=str)))
 
+    def checkpoints(self, build_id: str) -> list[dict]:
+        """The build's "checkpoint" events (plan, green tools), in order."""
+        rows = self.q("SELECT event FROM builds_log WHERE build_id = ? AND json_extract(event, '$.type') = 'checkpoint' "
+                      "ORDER BY id", (build_id,))
+        return [json.loads(r["event"]) for r in rows]
+
     def finish_build(self, build_id: str, status: str, cost_usd: float, handoff: dict | None) -> None:
         self.x("UPDATE builds SET status = ?, cost_usd = ?, handoff = ?, finished = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') "
                "WHERE build_id = ?", (status, cost_usd, json.dumps(handoff) if handoff else None, build_id))

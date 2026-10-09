@@ -4,6 +4,7 @@ Status: v7, 2026-10-08. Language: ASD-STE100. When we answer a question, we move
 ⭐ = this question blocks other work. PR-n = a proposal in ARCHITECTURE.md §13. En = an enforcement row in §5. Contract = [contract/INTERFACES.md](contract/INTERFACES.md).
 
 ## CLI
+- **Language boundary:** The answer language, the search language and the data language are different things. When the operator asks for live searches in their language, the tools must search in that language. Which mechanism controls this: a run language fact from the CLI, `lang`/`locale` tool arguments, an operator setting, or prompt rules? The operator requires the leanest mechanism that cannot cause a catastrophic failure: a language error must never stop a run, block a build or start a paid loop. The candidates, the recommendation and the exit check are in [HANDOFF.md](HANDOFF.md) §11, item 1.
 - **Long sessions:** The CLI has no compaction. What does it do when the context of a session gets near the model limit? Each kept assistant message must keep its `reasoning_content`.
 - **Main agent effort:** Which `reasoning_effort` does the main agent use: the default, `low` or `high`? Measure the cost and the quality in the dry runs.
 - **Cap reached:** A 402 stops the step. Can the operator raise a cap in the session, or only with `make run CAP_RUN=…`?

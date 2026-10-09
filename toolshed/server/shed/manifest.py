@@ -53,8 +53,7 @@ def validate(manifest: dict, files: dict[str, str] | None = None) -> list[str]:
     for k in ("input_schema", "output_schema"):
         if not isinstance(m.get(k, {}), dict):
             errs.append(f"{k} must be an object")
-    if m.get("grade") == "big" and not m.get("uses"):
-        errs.append("a big tool must use at least one small tool")
+    # A big tool is task level; it may do all its work itself (uses can be empty).
     if m.get("name") in (m.get("uses") or []):
         errs.append("a tool cannot use itself")
     p = m.get("permissions")

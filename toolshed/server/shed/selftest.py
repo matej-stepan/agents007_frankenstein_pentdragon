@@ -15,7 +15,7 @@ import textwrap
 from shed import runner
 from shed.chain import MAX_SUBCALLS, Chain
 from shed.db import DB, RegisterRefused
-from shed.lookup import lookup
+from shed.lookup import explore, lookup
 
 FAILS: list[str] = []
 APPROVAL = {"mode": "once", "by": "operator"}
@@ -218,23 +218,23 @@ def main() -> int:
         # 5. Depth limit (<= 3) and subcall limit (<= 20 per root).
         chain_names = [f"st_link{i}" for i in range(5)]
         install(db, *fixture(chain_names[-1], "def run(args, shed):\n    return {'me': 'leaf'}\n"))
-        for i in range(3, -1, -1):
+        for i in range(3, -1, -1):  # the root link is big: the agent runs only big tools (D53)
             a, b = chain_names[i], chain_names[i + 1]
-            install(db, *fixture(a, LINK % (a, b, a), uses=[b]))
+            install(db, *fixture(a, LINK % (a, b, a), uses=[b], grade="big" if i == 0 else "small"))
         r = chain.invoke(chain_names[0], {}, grant="no-grant")
         node, depth = r.get("result") or {}, 0
         while "next" in node:
             node, depth = node["next"], depth + 1
         check("depth limit stops the 4th nested call", depth == 3 and "depth limit" in str(node.get("refused")),
               json.dumps(r.get("result"))[:400])
-        install(db, *fixture("st_fan", FAN % (MAX_SUBCALLS + 5), uses=["st_double"], timeout_s=120))
+        install(db, *fixture("st_fan", FAN % (MAX_SUBCALLS + 5), uses=["st_double"], grade="big", timeout_s=120))
         r = chain.invoke("st_fan", {}, grant="no-grant")
         res = r.get("result") or {}
         check(f"subcall limit stops call {MAX_SUBCALLS + 1}", res.get("ok_calls") == MAX_SUBCALLS
               and "subcall limit" in str(res.get("error")), json.dumps(r)[:400])
 
         # 6. LLM needs permissions.llm_usd > 0; a bad run token is refused.
-        install(db, *fixture("st_nollm", NOLLM))
+        install(db, *fixture("st_nollm", NOLLM, uses=["st_double"], grade="big"))
         res = chain.invoke("st_nollm", {}, grant="no-grant").get("result") or {}
         check("llm refused when llm_usd = 0", "no LLM permission" in str(res.get("refused")), str(res))
         from shed_sdk import Shed, ShedError
@@ -245,9 +245,12 @@ def main() -> int:
         except ShedError:
             check("bad run token is refused", True)
 
-        # 7. Lookup over the temp registry.
-        lu = lookup(db, "double a number selftest fixture st_double", "s1")
-        check("lookup finds a fixture", any(row["name"] == "st_double" for row in lu["rows"]), json.dumps(lu)[:300])
+        # 7. Lookup over the temp registry: the agent lookup gives big tools only; explore (the Chef) gives all.
+        q = "double a number selftest fixture st_double"
+        lu = lookup(db, q, "s1")
+        check("lookup gives big tools only", bool(lu["rows"]) and all(row["grade"] == "big" for row in lu["rows"]),
+              json.dumps(lu)[:300])
+        check("explore finds a small fixture", any(row["name"] == "st_double" for row in explore(db, q, k=20)))
         check("lookup on nonsense is fit none", lookup(db, "qwxzv plorf", "s1")["fit"] == "none")
 
         # 8. Optional (make m1): the metered chain through the host meter, with a tool_run grant from the host.

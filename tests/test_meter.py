@@ -53,7 +53,8 @@ def test_cost_math_peak_offpeak():
 def test_chat_settles_clamps_and_logs(meter):
     run = meter.grant("run", parent=meter.session_grant, cap_usd=None)
     resp = meter.chat(run, BODY, role="main")
-    assert meter.calls[0]["max_tokens"] == 8192 and meter.calls[0]["model"] == "deepseek-flash"
+    assert meter.calls[0]["max_tokens"] == 16384 and meter.calls[0]["model"] == "deepseek-flash"
+    assert resp["x_meter"]["max_tokens"] == 16384
     status, role, hit, miss, out, reasoning, cost = ledger(meter)[0]
     assert (status, role, hit, miss, out, reasoning) == ("ok", "main", 800, 200, 100, 40)
     assert cost == pytest.approx(resp["x_meter"]["cost_usd"], abs=1e-6) and cost > 0
@@ -108,9 +109,112 @@ def test_unix_socket_round_trip(meter, tmp_path):
     assert meter.calls[-1]["max_tokens"] == 32768
     assert meter._db.execute("SELECT role, tool, build_id IS NOT NULL FROM calls").fetchone() == ("code", "fetch_page", 1)
     post(build, role="main")  # the container cannot claim the main role
-    assert meter.calls[-1]["max_tokens"] == 4096
+    assert meter.calls[-1]["max_tokens"] == 8192
     for token, code in [("g-bad", 401), (meter.session_grant, 401),
                         (meter.grant("tool_run", parent=run, cap_usd=0.00001), 402)]:
         with pytest.raises(llm.LLMError) as e:
             post(token)
         assert e.value.status == code
+
+
+def test_fit_clamp_shrinks_max_tokens_then_refuses_below_the_floor(meter):
+    flat = {"hit": 0.0, "miss": 0.0, "out": 1.0}  # USD 1 per 1M output tokens, no prompt cost, no peak
+    meter.prices = {"deepseek-flash": {"peak": flat, "offpeak": flat}}
+    run = meter.grant("run", parent=None, cap_usd=None)
+
+    def max_tokens(cap, role, want=None):
+        g = meter.grant("tool_run" if role == "tool" else "build", parent=run, cap_usd=cap)
+        body = BODY if want is None else {**BODY, "max_tokens": want}
+        resp = meter.chat(g, body, role=role)
+        assert resp["x_meter"]["max_tokens"] == meter.calls[-1]["max_tokens"]
+        return meter.calls[-1]["max_tokens"]
+
+    assert max_tokens(1.0, "code") == 32768                 # it fits: the role clamp
+    assert 9000 < max_tokens(0.01, "code") < 10000          # USD 0.01 fits about 10000 tokens: shrink, no refusal
+    assert 1024 <= max_tokens(0.0015, "tool") < 1500        # role tool: floor 1024
+    assert max_tokens(0.0001, "tool", want=50) == 50        # a small request is never raised
+    used = meter._db.execute("SELECT max_tokens FROM calls WHERE status = 'ok' ORDER BY id").fetchall()
+    assert [r[0] for r in used] == [b["max_tokens"] for b in meter.calls]  # the ledger keeps the max_tokens used
+    for cap, role in ((0.003, "code"), (0.0005, "tool")):   # below the floor (4096 / 1024 tokens): 402
+        n = len(meter.calls)
+        with pytest.raises(MeterRefused) as e:
+            max_tokens(cap, role)
+        assert e.value.info["cap"] in ("build", "tool_run") and len(meter.calls) == n
+    assert ledger(meter)[-1][0] == "refused"
+
+
+def _flat(meter):
+    flat = {"hit": 0.0, "miss": 0.0, "out": 1.0}  # USD 1 per 1M output tokens, no prompt cost
+    meter.prices = {"deepseek-flash": {"peak": flat, "offpeak": flat}}
+
+
+def test_waits_for_in_flight_reserves_instead_of_shrinking_or_refusing(meter):
+    import threading
+    import time
+    _flat(meter)
+    gate, fake, hold = threading.Event(), meter.upstream, []
+
+    def slow(body, **kw):
+        if hold:  # hold the first call of each race in flight
+            hold.pop()
+            gate.wait(10)
+        return fake(body, **kw)
+    meter.upstream = slow
+    run = meter.grant("run", parent=None, cap_usd=None)
+
+    def race(cap, *, revoke=False, wait_s=600.0):
+        gate.clear()
+        hold.append(1)
+        build = meter.grant("build", parent=run, cap_usd=cap)
+        out = {}
+
+        def call(key):
+            try:
+                out[key] = meter.chat(build, BODY, role="tests", wait_s=wait_s)["x_meter"]["max_tokens"]
+            except Exception as e:  # noqa: BLE001
+                out[key] = type(e).__name__
+        first = threading.Thread(target=call, args=("first",))
+        first.start()
+        for _ in range(500):
+            if meter._grants[build].reserved:
+                break
+            time.sleep(0.01)
+        second = threading.Thread(target=call, args=("second",))
+        second.start()
+        time.sleep(0.3)
+        meter.revoke(build) if revoke else None
+        second.join(5 if revoke else 0.01)
+        gate.set()
+        first.join(5), second.join(5)
+        return out
+
+    # 0.04 holds one 32768-token reserve (0.0328): the second call waits for it, then gets the full clamp
+    assert race(0.04) == {"first": 32768, "second": 32768}
+    assert race(0.04, revoke=True)["second"] == "MeterAuthError"  # a revoke wakes the waiter: 401
+    assert 4096 <= race(0.04, wait_s=0.1)["second"] < 8000  # the wait timed out: today's clamp
+
+
+def test_topup_raises_clamped_and_socket_reads_the_last_decision(meter, tmp_path):
+    sock = tmp_path / "meter.sock"
+    meter.serve(sock)
+    run = meter.grant("run", parent=None, cap_usd=1.0)
+    build = meter.grant("build", parent=run, cap_usd=0.5)
+
+    def poll(token):
+        return llm.post_json({}, unix_socket=str(sock), path="/v1/topup", timeout=10,
+                             headers={"Authorization": f"Bearer {token}"})
+    assert poll(build) == {"decision": "pending"}
+    d = meter.topup(build, usd=5.0, seconds=60)  # the run has only 0.5 more than the build: clamp
+    assert meter.grant_info(build)["cap_usd"] == pytest.approx(1.0)
+    assert d == poll(build) == poll(build) == {"decision": "raised", "usd": 0.5, "seconds": 60, "seq": 1}  # kept
+    meter.topup(build, usd=0.5)  # no room left and no seconds: denied, the cap stays
+    assert poll(build) == {"decision": "denied", "seq": 2} and meter.grant_info(build)["cap_usd"] == pytest.approx(1.0)
+    meter.topup(build, usd="junk", deny=True)
+    assert poll(build) == {"decision": "denied", "seq": 3}
+    meter.revoke(build)
+    assert meter.topup(build, usd=1.0) is None  # revoked / unknown grant: a no-op
+    meter.topup("g-nope", usd=1.0)
+    for token in (build, "g-nope", meter.session_grant):
+        with pytest.raises(llm.LLMError) as e:
+            poll(token)
+        assert e.value.status == 401

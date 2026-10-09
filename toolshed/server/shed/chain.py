@@ -12,9 +12,9 @@ from shed import runner
 
 MAX_DEPTH = 3
 MAX_SUBCALLS = 20
-LLM_MAX_TOKENS = 4096
-LLM_MODEL = os.environ.get("SHED_TOOL_MODEL") or "deepseek-flash"  # role "tool" (shed.llm in tools)
-LLM_EFFORT = os.environ.get("SHED_TOOL_EFFORT") or "low"
+LLM_MAX_TOKENS = 8192  # = the meter clamp for role "tool"; the meter shrinks it to fit the grant (D54)
+LLM_MODEL = os.environ.get("SHED_TOOL_MODEL") or "deepseek-v4-pro"  # role "tool" (shed.llm in tools), D52
+LLM_EFFORT = os.environ.get("SHED_TOOL_EFFORT") or "high"
 
 
 @dataclass
@@ -179,8 +179,9 @@ class Chain:
         msgs = req.get("messages")
         if not isinstance(msgs, list) or not msgs:
             return {"ok": False, "error": "messages must be a non-empty list"}
-        body = {"model": LLM_MODEL, "messages": msgs, "reasoning_effort": LLM_EFFORT,
-                "max_tokens": max(16, min(int(req.get("max_tokens") or 1024), LLM_MAX_TOKENS))}
+        # max_tokens counts the reasoning tokens too: a small request (SDK default 1024) would cut a high-effort
+        # reply before the answer. Send the role clamp; the meter fits it to the grant left (D54).
+        body = {"model": LLM_MODEL, "messages": msgs, "reasoning_effort": LLM_EFFORT, "max_tokens": LLM_MAX_TOKENS}
         if req.get("json"):
             body["response_format"] = {"type": "json_object"}
         try:

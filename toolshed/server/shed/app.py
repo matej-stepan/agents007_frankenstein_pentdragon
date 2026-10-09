@@ -50,7 +50,7 @@ class Shedd:
 
     def lookup(self, body):
         if body.get("tool"):
-            d = lk.tool_detail(self.db, body["tool"])
+            d = lk.agent_tool_detail(self.db, body["tool"])  # a small tool: a short note, not its schema (D53)
             if not d:
                 raise HTTPError(404, f"no tool {body['tool']}")
             return d
@@ -59,9 +59,13 @@ class Shedd:
         return lk.lookup(self.db, body["query"], body.get("session_id") or "")
 
     def invoke(self, body):
+        """The agent runs only big tools (D53). Small tools run only nested, through shed.call (chain.py)."""
         name = body.get("name")
-        if not self.db.get_version(name or ""):
+        tool = self.db.get_version(name or "")
+        if not tool:
             raise HTTPError(404, f"no tool {name}")
+        if tool["grade"] != "big":
+            raise HTTPError(400, lk.SMALL_NOTE.format(name=name))
         r = self.chain.invoke(name, body.get("args") or {}, body.get("grant") or "", body.get("run_id") or "",
                               body.get("session_id") or "")
         if r.get("ok"):
@@ -108,8 +112,28 @@ class Shedd:
                 raise HTTPError(400, f"{k} is required")
         return repair or None
 
+    def check_resume(self, body) -> tuple[str | None, str]:
+        """resume_of: a failed build of this session and task with a plan checkpoint. Anything else is ignored
+        (a normal build, with a note in the trace), never a 400. Returns (build_id or None, note)."""
+        rid = body.get("resume_of")
+        if rid is None:
+            return None, ""
+        b = self.db.get_build(rid) if isinstance(rid, str) and rid != body.get("build_id") else None
+        if not b:
+            why = "no such build"
+        elif b["session_id"] != (body.get("session_id") or "") or b["task"] != body.get("task"):
+            why = "another session or task"
+        elif b["status"] != "failed":
+            why = f"status {b['status']}, not failed"
+        elif not any(c.get("stage") == "plan" for c in self.db.checkpoints(rid)):
+            why = "no plan checkpoint"
+        else:
+            return rid, ""
+        return None, f"resume_of {str(rid)[:40]!r} ignored: {why}"
+
     def chef_build(self, body, stream):
         repair = self.check_build(body)
+        resume_of, note = self.check_resume(body)
         from shed.chef import orchestrator  # lazy: written by the Chef owner
 
         build_id = body["build_id"]
@@ -120,9 +144,19 @@ class Shedd:
             self.db.add_trace(build_id, event)
             write(event)
 
+        # G2/G1: per-build options and the Waiter's advice. Lenient: a wrong type is ignored, never a 400;
+        # the Chef clamps the values (orchestrator.build_options) and traces what it used.
+        opts = body.get("options") if isinstance(body.get("options"), dict) else {}
+        advice = body.get("advice")
+        if note:
+            emit({"type": "trace", "phase": "P1", "tool": None, "msg": f"warning: {note}", "cost_usd": 0.0})
         ctx = orchestrator.BuildCtx(db=self.db, grant=body["grant"], task=body["task"], need=body["need"],
                                     lookup_id=body.get("lookup_id"), session_id=body.get("session_id") or "",
-                                    build_id=build_id, repair_of=repair, chain=self.chain)
+                                    build_id=build_id, repair_of=repair, chain=self.chain,
+                                    effort=opts.get("effort"), cap_seconds=opts.get("cap_seconds"),
+                                    plan_seconds=opts.get("plan_seconds"),
+                                    advice=advice.strip()[:orchestrator.ADVICE_CHARS] if isinstance(advice, str) else "",
+                                    resume_of=resume_of)
         try:
             handoff = orchestrator.build(ctx, emit)
             b = self.db.get_build(build_id)
@@ -238,7 +272,7 @@ def make_handler(app: Shedd):
                 try:
                     self.wfile.write(json.dumps(event, default=str).encode() + b"\n")
                     self.wfile.flush()
-                except OSError:
+                except (OSError, ValueError):  # ValueError: a late worker after a failed build closed the stream
                     alive[0] = False  # the client left; the build continues and keeps its drafts
 
             return write

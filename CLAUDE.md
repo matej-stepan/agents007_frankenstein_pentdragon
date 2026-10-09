@@ -3,6 +3,7 @@
 A self-extending agent: two modules, the CLI (Python, DeepSeek only) and the toolshed (local Podman sandbox and tool database).
 
 ## Documents
+- `HANDOFF.md`: the current state, the operator rules and the open items. Read it first.
 - `SUBJECT.md`: the hackathon brief. `subject.txt` is the original.
 - `ARCHITECTURE.md`: the design and the decision log. Read it before you suggest a change.
 - `OPEN_QUESTIONS.md`: open questions. ⭐ = a blocker.

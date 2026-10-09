@@ -10,7 +10,7 @@
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,40}$"},
     "version": {"type": "integer", "minimum": 1, "description": "Set by shedd at register."},
     "parent": {"type": ["string", "null"], "description": "name@vN of the version this one repairs or extends."},
-    "grade": {"enum": ["big", "small"], "description": "big = composed of small tools (uses non-empty), task level. small = generic, reusable."},
+    "grade": {"enum": ["big", "small"], "description": "big = task level, the only grade the main agent can run; it may call small tools (uses). small = generic building block, called only by other tools."},
     "summary": {"type": "string", "maxLength": 120},
     "description": {"type": "string"},
     "keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 16},

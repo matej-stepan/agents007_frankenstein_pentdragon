@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS calls (
     reasoning   INTEGER NOT NULL DEFAULT 0,
     cost_usd    REAL NOT NULL DEFAULT 0,
     status      TEXT NOT NULL CHECK (status IN ('ok', 'error', 'refused')),
-    latency_ms  INTEGER
+    latency_ms  INTEGER,
+    max_tokens  INTEGER                     -- max_tokens sent upstream (after the clamps, D54)
 );
 CREATE INDEX IF NOT EXISTS calls_session ON calls(session_id);
 

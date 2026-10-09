@@ -1,10 +1,13 @@
 """The agent loop: one byte-stable history per session, a fixed toolset, one run grant per prompt."""
 
+import contextlib
+import http.client
 import json
 import secrets
+from collections import deque
 from pathlib import Path
 
-from . import gate, llm, ui
+from . import gate, llm, ui, waiter
 from .approvals import Approvals
 from .meter import MeterRefused
 from .shed_client import ShedClient, ShedError
@@ -13,19 +16,23 @@ from .ws_tools import WsError, ws_read, ws_write
 MAX_TURNS = 40
 MAX_BUILDS = 2  # big_chef calls per user prompt (a hard cap in code, rule 4)
 MAX_RESULT = 6144
+RUN_RESERVE_USD = 0.10  # kept from a build cap: one Waiter call + the main agent's answer (D58)
+MIN_BUILD_USD = 0.10  # a smaller cap cannot pay the first P1 call (4096-token floor)
+CANCELLED = "the operator cancelled the build. Answer with the installed tools and state what is missing."
 PROMPT = Path(__file__).with_name("prompt.md").read_text(encoding="utf-8")
 
 _S = {"type": "string"}
 TOOLS = [
     llm.tool_schema(
         "lookup",
-        "Search the toolshed (no LLM). query -> lookup_id, fit good|partial|none, <=3 tools. "
+        "Search the toolshed (no LLM). query -> lookup_id, fit good|partial|none, <=3 big tools. "
         "tool -> one tool's SKILL.md and input schema.",
         {"type": "object", "properties": {"query": _S, "tool": _S}},
     ),
     llm.tool_schema(
         "use_tool",
-        "Run an installed toolshed tool in the sandbox. args must match its input schema.",
+        "Run an installed big tool in the sandbox (small tools are building blocks for the Chef). "
+        "args must match its input schema.",
         {
             "type": "object",
             "properties": {"name": _S, "args": {"type": "object"}},
@@ -130,10 +137,13 @@ class Agent:
         model: str,
         caps: dict,
         effort: str = "high",
+        build_defaults: dict | None = None,
     ):
         self.meter, self.shed, self.session_grant, self.session_id = meter, shed, session_grant, session_id
         self.root, self.workspace, self.approvals = root, root / "workspace", approvals
         self.model, self.caps, self.effort = model, caps, effort
+        # G2/G3 defaults of each build; gate.build_options clamps them (a bad value falls back, never raises)
+        self.build_defaults = {**gate.BUILD_DEFAULTS, "cap_usd": caps.get("build", 1.0), **(build_defaults or {})}
         self.messages: list[dict] = [{"role": "system", "content": PROMPT}]
         self.built: set[tuple[str, int]] = set()  # (tool, version) built in this session
         self.saved: set[tuple[str, int]] = set()  # (tool, version) already counted as reuse
@@ -277,6 +287,10 @@ class Agent:
         tool = tools.get(name)
         if tool is None:
             return {"error": f"no tool named {name!r}; call lookup first"}
+        if tool.get("grade") != "big":  # D53; shedd /invoke refuses it too. Checked before the use gate asks.
+            ui.warn(f"  use_tool refused: {name} is a small tool")
+            return {"error": f"{name} is a small building block. Only big tools run for the agent: use lookup, or "
+                             "big_chef to build a task tool.", "status": 400}
         if not self.approvals.take(tool.get("perm_hash", "")):
             pick = gate.use(tool)
             if pick == "deny":
@@ -345,21 +359,11 @@ class Agent:
             ui.warn(f"  big_chef refused: {MAX_BUILDS} builds per prompt")
             return {"failed": f"build limit: {MAX_BUILDS} builds per prompt. Answer now with the installed tools "
                               "and state what is missing."}
-        build_id, cap = new_id("b"), self.caps["build"]
-        g = self.meter.grant(
-            "build",
-            parent=self.run_grant,
-            cap_usd=cap,
-            label=ui.short(a.get("need", ""), 60),
-            build_id=build_id,
-        )
         body = {
             "task": a.get("task", ""),
             "need": a.get("need", ""),
             "lookup_id": a.get("lookup_id", ""),
             "session_id": self.session_id,
-            "build_id": build_id,
-            "grant": g,
         }
         if rep:  # the model names the run; the CLI attaches the args it recorded (the model never supplies them)
             iid = str(rep.get("invoke_id") or "")
@@ -370,33 +374,165 @@ class Agent:
             if rep
             else f"“{ui.short(a.get('need', ''), 70)}”"
         )
-        ui.info(f"  big chef: building {what} · cap ${cap:.2f}", "cyan")
-        handoff = failed = None
-        started = False
+        opts, counted, cost, advice, out, resume, ck = self.build_defaults, False, 0.0, "", None, None, None
+        while True:  # one pass per operator-approved attempt (G1 retry); MAX_BUILDS counts this call once
+            left = self._run_left()
+            room = round(left - RUN_RESERVE_USD, 4)
+            if room < MIN_BUILD_USD:
+                ui.warn(f"  big_chef refused: the run budget is too low for a build (${left:.2f} left)")
+                return out or {"failed": f"the run budget is too low for a build (${left:.2f} left). Answer with "
+                                         "the installed tools and state what is missing."}
+            opts = gate.build_options(opts, what, room)
+            if opts is None:  # before the first build, or at a retry (then the last failure goes back)
+                ui.warn("  build cancelled by the operator")
+                return out or {"failed": CANCELLED}
+            ui.info(f"  big chef: building {what} · {gate.options_text(opts)}" + (" · with advice" if advice else "")
+                    + (f" · resume of {resume}" if resume else ""), "cyan")
+            extra = ({"advice": advice} if advice else {}) | ({"resume_of": resume} if resume else {})
+            try:
+                handoff, failed, events, started, nck = self._chef_stream(
+                    body | extra, opts, ui.short(a.get("need", ""), 60), count=not counted)
+            except ShedError as e:  # a refused retry keeps the earlier failure, its cost and its diagnosis
+                if out is None:
+                    raise
+                ui.error(f"  chef retry refused: {ui.short(e.msg, 200)}")
+                return {**out, "failed": f"{out['failed']} (retry refused: {ui.short(e.msg, 200)})"}
+            counted = counted or started
+            if nck["plan"] or not resume:  # a resume without its own plan checkpoint keeps the older checkpoint
+                ck = nck
+            if handoff and not failed:
+                return self._install(handoff)
+            reason = str((failed or {}).get("reason") or "the build stream ended without a handoff")
+            cost += float((failed or {}).get("cost_usd") or 0)
+            ui.error(f"  chef failed: {ui.short(reason, 400)}")
+            out = {"failed": reason[:2000], "cost_usd": round(cost, 4)}
+            if gate.mode() == "auto":  # no Waiter, no extra paid call, no retry question
+                return out
+            d = waiter.diagnose(self.meter, self.run_grant, self.model, events, reason, body["task"], body["need"])
+            if d["ok"]:
+                out["diagnosis"] = d["cause"]
+                ui.warn("  waiter: " + d["cause"].replace("\n", "\n          "))
+            with_advice = " with this advice" if d["advice"] else ""
+            if ck and ck["plan"] and ck.get("failed") and not d.get("replan"):  # good plan: keep it + the green tools
+                ropts = [("resume", f"Resume from the checkpoint (plan + {len(ck['tools'])} green tools)"),
+                         ("retry", "Retry from scratch" + with_advice)]
+            else:
+                ropts = [("retry", "Retry the Chef" + with_advice)]
+            pick = gate.ask("Retry the Chef?", ropts + [("continue", "Continue without the tool")], auto="continue")
+            if pick not in ("retry", "resume"):
+                return out
+            advice, resume = d["advice"], (ck["build_id"] if pick == "resume" else None)
+
+    def _run_left(self, default: float | None = None) -> float:
         try:
-            for ev in self.shed.chef_build(body):
-                if not started:  # count a build only once shedd streams: a refused request (400) is free
-                    started = True
-                    self.builds += 1
-                t = ev.get("type")
-                if t == "trace":
-                    tool = f" {ev['tool']}" if ev.get("tool") else ""
-                    ui.dim(
-                        f"  chef {ev.get('phase', '?')}{tool}: {ev.get('msg', '')} · ${ev.get('cost_usd', 0):.4f}"
-                    )
-                elif t == "test_run":
-                    self._show_test_run(ev)
-                elif t == "handoff":
-                    handoff = ev
-                elif t == "failed":
-                    failed = ev
+            return float(self.meter.grant_info(self.run_grant)["left_usd"])
+        except Exception:  # noqa: BLE001 - no number: the meter still enforces every cap on each call
+            return float(self.caps.get("run") or 0) if default is None else default
+
+    def _chef_stream(self, body: dict, opts: dict, label: str, count: bool):
+        """One build: its own build_id and build grant (revoked on every path). Returns (handoff, failed, events,
+        started, checkpoint {build_id, plan, tools}). A refused request (ShedError before the first event) is raised:
+        it is not a Chef failure. Interactive mode shows the chef spinner while the stream runs."""
+        build_id = new_id("b")
+        g = self.meter.grant("build", parent=self.run_grant, cap_usd=opts["cap_usd"], label=label, build_id=build_id)
+        body = {**body, "build_id": build_id, "grant": g,
+                "options": {k: opts[k] for k in ("effort", "cap_seconds", "plan_seconds") if opts.get(k) is not None}}
+        handoff = failed = stream = spent = None
+        events: deque = deque(maxlen=waiter.KEEP_EVENTS)
+        ck = {"build_id": build_id, "plan": False, "tools": [], "failed": False}
+        chef, asked, pending, started = ui.ChefStatus(opts.get("cap_seconds") or 0), set(), False, False
+        try:
+            with chef:  # stopped on every exit path (Ctrl-C too) before the Waiter or the install gate
+                stream = self.shed.chef_build(body)
+                for ev in stream:
+                    if not started:  # count a build only once shedd streams: a refused request (400) is free
+                        started = True
+                        self.builds += count
+                    if not isinstance(ev, dict):
+                        continue
+                    events.append(ev)
+                    chef.on(ev)
+                    t = ev.get("type")
+                    if t == "trace":
+                        tool = f" {ev['tool']}" if ev.get("tool") else ""
+                        ui.dim(f"  chef {ev.get('phase', '?')}{tool}: {ev.get('msg', '')} · "
+                               f"${float(ev.get('cost_usd') or 0):.4f}")
+                    elif t == "test_run":
+                        self._show_test_run(ev)
+                    elif t == "checkpoint":  # the plan JSON stays on the server (builds_log)
+                        if ev.get("stage") == "plan":
+                            ck["plan"] = True
+                        elif ev.get("stage") == "tool" and ev.get("tool"):
+                            ck["tools"] = list(dict.fromkeys([*ck["tools"], str(ev["tool"])]))
+                            ui.dim(f"  chef: saved {ev['tool']} (green)")
+                    elif t == "cap_hit" and (ev.get("kind"), ev.get("n")) not in asked:  # one prompt per event
+                        asked.add((ev.get("kind"), ev.get("n")))
+                        pending = True
+                        if not self._cap_hit(ev, g, chef):
+                            failed = {"reason": "a build cap was reached; the top-up answer did not reach the meter"}
+                            break
+                        pending = False
+                    elif t == "handoff":
+                        handoff = ev
+                    elif t == "failed":  # a server-side failure: only then is the build resumable (status failed)
+                        failed, ck["failed"] = ev, True
+        except (ShedError, OSError, http.client.HTTPException) as e:
+            if not started:
+                raise ShedError(e.status, e.msg) if isinstance(e, ShedError) else ShedError(0, str(e)) from None
+            failed = {"reason": f"the build stream broke: {type(e).__name__}: {ui.short(str(e), 200)}"}
         finally:
+            if pending:  # Ctrl-C at a cap_hit: Stop (the server polls for the answer)
+                with contextlib.suppress(Exception):
+                    self.meter.topup(g, deny=True)
+            with contextlib.suppress(Exception):  # the meter's figure is the authority (a broken stream has none)
+                spent = float(self.meter.spent(g))
             self.meter.revoke(g)
-        if failed or not handoff:
-            reason = (failed or {}).get("reason", "the build stream ended without a handoff")
-            ui.error(f"  chef failed: {reason}")
-            return {"failed": reason, "cost_usd": (failed or {}).get("cost_usd")}
-        return self._install(handoff)
+            with contextlib.suppress(Exception):  # close the HTTP stream (a Ctrl-C leaves it open otherwise)
+                getattr(stream, "close", lambda: None)()
+        if started and handoff is None and failed is None:
+            failed = {"reason": "the build stream ended without a handoff"}
+        if failed is not None and spent is not None:
+            failed = {**failed, "cost_usd": spent}
+        return handoff, failed, list(events), started, ck
+
+    def _cap_hit(self, ev: dict, g: str, chef) -> bool:
+        """A build cap was hit: the operator raises it or stops the build (auto mode and Ctrl-C: Stop). The server
+        polls the meter for the answer and does not count the wait. False = the answer did not reach the meter."""
+        kind = "time" if ev.get("kind") == "time" else "usd"
+        spent, cap, el, cap_s = (gate._num(ev.get(k), 0.0) for k in ("spent_usd", "cap_usd", "elapsed_s", "cap_s"))
+        chef.sync(el, cap_s)
+        if kind == "usd":  # never into the run reserve (the Waiter call and the answer); the meter clamps too
+            room = round(self._run_left(0.0) - RUN_RESERVE_USD, 2)
+            msg = f"Build cap reached (${spent:.2f} of ${cap:.2f}). Raise it?"
+            opts = [(f"{x:.2f}", f"+${x:.2f}") for x in dict.fromkeys(min(x, room) for x in (0.5, 1.0)) if x >= 0.01]
+        else:
+            msg = f"Build time cap reached ({el / 60:.1f} of {cap_s / 60:g} min). Raise it?"
+            opts = [("300", "+5 min"), ("600", "+10 min")]
+        if gate.mode() == "auto" or not opts:
+            ui.warn(f"  chef: {msg[:-10]}" + ("" if opts else " The run budget has no room for more."))
+        pick = "stop"
+        if opts:
+            with chef.paused():
+                pick = gate.ask(msg, opts + [("stop", "Stop the build")], auto="stop")
+        try:
+            if pick == "stop":
+                d = self.meter.topup(g, deny=True)
+            elif kind == "usd":
+                d = self.meter.topup(g, usd=float(pick))
+            else:
+                d = self.meter.topup(g, seconds=int(pick))
+                chef.cap_s += int(pick)
+        except Exception as e:  # noqa: BLE001 - the build then ends (its grant is revoked), the run goes on
+            ui.warn(f"  chef: the top-up answer did not reach the meter ({type(e).__name__}: {ui.short(str(e), 120)})")
+            return False
+        if pick != "stop":  # print what the meter applied (it clamps to the run / total room), not the pick
+            d = d if isinstance(d, dict) else {"decision": "raised", "usd": float(pick) if kind == "usd" else 0}
+            if d.get("decision") != "raised":
+                ui.warn("  chef: the meter had no room for a raise; the build stops")
+            else:
+                usd = gate._num(d.get("usd"), 0.0)
+                ui.info(f"  chef: cap raised (+{f'${usd:.2f}' if kind == 'usd' else f'{int(pick) // 60} min'})", "cyan")
+        return True
 
     def _show_test_run(self, ev: dict) -> None:
         p, f = int(ev.get("passed") or 0), int(ev.get("failed") or 0)

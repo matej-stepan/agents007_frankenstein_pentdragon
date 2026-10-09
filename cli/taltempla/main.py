@@ -52,8 +52,22 @@ def read_env(path: Path) -> dict:
 
 
 def caps_from_env() -> dict:
-    d = {"build": 0.60, "run": 2.00, "session": 5.00, "total": 20.00}
+    d = {"build": 1.00, "run": 3.00, "session": 6.00, "total": 20.00}  # meter.DEFAULT_CAPS (D54)
     return {k: float(os.environ.get(f"TALTEMPLA_CAP_{k.upper()}") or v) for k, v in d.items()}
+
+
+def build_defaults_from_env(caps: dict) -> dict:
+    """G2/G3 defaults of each Chef build. Lenient: a bad value keeps the default (gate.clamp_options clamps)."""
+    d = {"cap_usd": caps.get("build", 1.00), "effort": None, "cap_seconds": 360, "plan_seconds": 150}  # None = roles
+    effort = (os.environ.get("TALTEMPLA_BUILD_EFFORT") or "").strip().lower()
+    if effort in ("low", "high", "max"):
+        d["effort"] = effort
+    for key, env in (("cap_seconds", "TALTEMPLA_BUILD_SECONDS"), ("plan_seconds", "TALTEMPLA_PLAN_SECONDS")):
+        try:
+            d[key] = int(float(os.environ.get(env) or d[key]))
+        except (TypeError, ValueError, OverflowError):
+            ui.warn(f"{env} is not a number; using {d[key]}")
+    return d
 
 
 def shed_alive(shed: ShedClient) -> dict | None:
@@ -158,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         model=model,
         caps=caps,
         effort=os.environ.get("TALTEMPLA_EFFORT") or "high",
+        build_defaults=build_defaults_from_env(caps),
     )
     status = lambda: ui.status_line(meter.status())
     try:

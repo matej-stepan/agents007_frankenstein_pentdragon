@@ -9,7 +9,9 @@ Generic first:
 2. Split the work into stages: fetch -> extract -> normalise -> filter/rank. Each site-independent stage is a small tool: reuse a registry tool, else extend one, else add a new one. Never re-implement what a registry tool does.
 3. Site knowledge (URL templates, query params, JSON paths, field maps) is DATA in the entry (one dict per site), not code in a small tool.
 4. Names state the domain function, never a task value, a place or a site. Locale and currency are arguments.
-- A task that searches, compares or ranks web data gets a big entry over generic small tools. A standalone small entry (uses [], small []) only for one narrow, generic operation.
+- The entry is always a big, task-level tool. It does the whole user task end to end from the user's own inputs (names, places, numbers). It finds its own URLs and IDs (for example, it searches for them); it never expects the caller to give a URL or an ID that comes from a search. Small tools stay generic building blocks that only big tools call with shed.call.
+- The entry solves the general Need; the task is one example of its use, so the task's subject (item, place, site, query) is an argument too.
+- When a registry tool does a similar job, extend it (new optional inputs) instead of adding a near-duplicate small tool.
 - At most 3 new or extended small tools. Each one is in some uses list.
 - A new manifest is complete (no version, no parent) and its name is not in the registry. An extend keeps the name and every input property, and adds no required property. deps only from pkg_search.
 - Sources: probe each data source before you commit to it. Use a browser User-Agent and a 15 s timeout; print the status, the final URL and one real item (<= 1500 chars) or the JSON path to the items. Prefer a public JSON API (the endpoint the site's own frontend calls) over HTML. If a source blocks (403, captcha, empty body), probe another one. Two failed probes of one site: drop it. Probe every URL pattern you put in the spec (search, page 2, detail links) and write only verified patterns; if the data holds item URLs, say to use them.

@@ -1,4 +1,8 @@
-"""Lookup without an LLM: FTS5 bm25 over the active tools plus a coverage score. Contract sections 5 and 10."""
+"""Lookup without an LLM: FTS5 bm25 over the active tools plus a coverage score. Contract sections 5 and 10.
+
+The agent lookup gives big tools only (D53): small tools are building blocks that only big tools call. explore()
+(the Chef) gives all grades.
+"""
 
 import re
 import unicodedata
@@ -64,11 +68,23 @@ def score(db, query: str) -> list[dict]:
     return rows
 
 
+SMALL_NOTE = ("{name} is a small building block. Only big tools run for the agent: use lookup, or big_chef to build "
+              "a task tool.")
+
+
 def lookup(db, query: str, session_id: str) -> dict:
-    rows = [{k: v for k, v in r.items() if k != "bm25"} for r in score(db, query)[:MAX_ROWS]]
+    """The agent lookup (D53): rows and fit over big tools only. No big fit but small tools match = fit partial, so
+    big_chef composes a big tool from them. The stored row keeps the top 3 of all grades for the Chef plan."""
+    every = [{k: v for k, v in r.items() if k != "bm25"} for r in score(db, query)]
+    rows = [r for r in every if r["grade"] == "big"][:MAX_ROWS]
     fit = max((r["fit"] for r in rows), key=FIT_RANK.get, default="none")
-    lookup_id = db.save_lookup(session_id, query, fit, rows)
-    return {"lookup_id": lookup_id, "fit": fit, "rows": rows}
+    parts = sum(1 for r in every if r["grade"] != "big" and r["fit"] != "none")
+    reply = {"fit": fit, "rows": rows}
+    if fit == "none" and parts:
+        reply = {"fit": "partial", "rows": rows,
+                 "note": f"No big tool fits. {parts} small building block(s) match: call big_chef to build a task tool."}
+    lookup_id = db.save_lookup(session_id, query, reply["fit"], every[:MAX_ROWS])
+    return {"lookup_id": lookup_id, **reply}
 
 
 def explore(db, query: str, page: int = 0, k: int = 5) -> list[dict]:
@@ -86,3 +102,11 @@ def tool_detail(db, name: str) -> dict | None:
         return None
     return {k: t[k] for k in ("name", "version", "grade", "skill", "input_schema", "output_schema", "uses",
                               "permissions")}
+
+
+def agent_tool_detail(db, name: str) -> dict | None:
+    """lookup(tool=X) for the agent (D53): the schema of a big tool; a short note for a small one."""
+    d = tool_detail(db, name)
+    if d and d["grade"] != "big":
+        return {"name": d["name"], "version": d["version"], "grade": d["grade"], "note": SMALL_NOTE.format(name=name)}
+    return d

@@ -2,14 +2,25 @@
 
 Every LLM call goes through Meter.chat(). The CLI agent loop calls it in-process; the toolshed container
 (Big Chef, agentic tools via shedd) calls it over a unix socket (serve()). Both take the same path:
-grant check -> clamp max_tokens -> reserve an estimate against every cap in the grant chain and the total cap
--> forward upstream -> settle the real cost (peak/off-peak, by UTC request start) -> one ledger row.
+grant check -> clamp max_tokens (role clamp, then fit to the budget left, D54) -> reserve an estimate against every
+cap in the grant chain and the total cap -> forward upstream -> settle the real cost (peak/off-peak, by UTC request
+start) -> one ledger row.
 
 Grants are opaque random tokens in a tree: session -> run -> build | tool_run. A grant inherits run_id,
 build_id and tool from its parent. Spend on a grant counts on all its ancestors, so a child can never spend
 more than any ancestor allows. Revoking a grant also kills its children.
 
 Contract API: MeterRefused (402), MeterAuthError (401), Meter.grant/revoke/chat/spent/serve/status/balance.
+
+Wait, not refuse: a call that does not fit (or would shrink below half its role clamp) ONLY because of other calls'
+in-flight reserves waits for a settle (Condition on the meter lock, <= WAIT_S in-process, WAIT_SOCKET_S on the socket;
+a socket caller bounds it with X-Taltempla-Wait, role "tool" waits 0 by default: a tool has its own short deadline),
+then fits as before. A revoke wakes it (401); a timeout falls back to the clamp / 402.
+
+Cap top-up (operator): Meter.topup(grant, usd=0.0, seconds=0, deny=False) raises the grant cap (clamped to what the
+parent chain and the total cap have left), stores a decision and returns it; the container reads it with POST /v1/topup
+(Bearer grant, same 401 rules as chat) -> {"decision": "pending" | "denied" | "raised", "usd", "seconds", "seq"}. The read
+does not consume it (a lost reply loses no answer): seq counts the answers, the reader ignores a seq it already used.
 
 Extra helpers (for the CLI and the Makefile):
     Meter.session_grant: str                       made in __init__ (kind "session", cap = caps["session"])
@@ -31,6 +42,7 @@ Extra helpers (for the CLI and the Makefile):
 
 import argparse
 import json
+import math
 import os
 import secrets
 import socket
@@ -48,12 +60,20 @@ from . import llm
 PKG = Path(__file__).resolve().parent
 DEFAULT_MODEL = "deepseek-flash"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_CAPS = {"build": 0.60, "run": 2.00, "session": 5.00, "total": 20.00}
-ROLE_MAX_TOKENS = {"main": 8192, "plan": 32768, "tests": 12288, "code": 32768, "security": 6144, "tool": 4096}
+DEFAULT_CAPS = {"build": 1.00, "run": 3.00, "session": 6.00, "total": 20.00}
+ROLE_MAX_TOKENS = {"main": 16384, "plan": 32768, "tests": 32768, "code": 32768, "security": 16384, "tool": 8192,
+                   "waiter": 16384}
+# Fit-to-budget clamp (D54): max_tokens shrinks until the reserve fits; it never goes below the floor (402 there).
+MIN_TOKENS = {"tool": 1024, "waiter": 2048}  # a cut Waiter reply falls back (G1)
+MIN_TOKENS_DEFAULT = 4096
 SOCKET_ROLES = {"plan", "tests", "code", "security", "tool"}
 KINDS = ("session", "run", "build", "tool_run")
 MAX_BODY = 8 << 20
 DROP_FIELDS = ("stream", "stream_options", "n", "x_meter")
+CHAT_PATHS, TOPUP_PATHS = ("/v1/chat/completions", "/chat/completions"), ("/v1/topup", "/topup")
+WAIT_S = 600.0  # max wait for in-flight reserves to settle, in-process callers
+WAIT_SOCKET_S = 600.0  # socket callers: wait + the upstream call (600 s) stay under the container timeout (1500 s)
+WAIT_SLICE = 5.0  # re-check at least this often (a lost notify never parks a call)
 
 
 class MeterRefused(Exception):
@@ -67,6 +87,15 @@ class MeterRefused(Exception):
 
 class MeterAuthError(Exception):
     status = 401
+
+
+def _pos(v) -> float:
+    """A finite number > 0, else 0 (bad top-up input falls back to a denial)."""
+    try:
+        v = float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v if math.isfinite(v) and v > 0 else 0.0
 
 
 def _now_iso() -> str:
@@ -107,6 +136,8 @@ class _Grant:
     spent: float = 0.0
     reserved: float = 0.0
     revoked: bool = False
+    decision: dict | None = None  # the operator's last top-up answer (with seq), read over the socket
+    seq: int = 0
 
     def chain(self):
         g = self
@@ -126,6 +157,7 @@ class Meter:
         self.prices = json.loads(Path(prices_path).read_text())
         self.upstream = llm.post_json  # tests replace this with a fake
         self._lock = threading.RLock()
+        self._cond = threading.Condition(self._lock)  # notified on every settle / release / revoke / top-up
         self._grants: dict[str, _Grant] = {}
         self._tok = {"hit": 0, "miss": 0, "out": 0}
         self._session_spent = self._saved = self._total_reserved = 0.0
@@ -136,6 +168,8 @@ class Meter:
         ledger_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._db = sqlite3.connect(ledger_path, check_same_thread=False, isolation_level=None, timeout=10)
         self._db.executescript((PKG / "ledger.sql").read_text())
+        if "max_tokens" not in {r[1] for r in self._db.execute("PRAGMA table_info(calls)")}:  # a ledger before D54
+            self._db.execute("ALTER TABLE calls ADD COLUMN max_tokens INTEGER")
         self._db.execute("INSERT OR IGNORE INTO sessions(id, started) VALUES (?, ?)", (session_id, _now_iso()))
         self._total_spent = self._db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM calls").fetchone()[0]
         self.session_grant = self.grant("session", parent=None, cap_usd=None, label="session")
@@ -161,6 +195,34 @@ class Meter:
         with self._lock:
             if g := self._grants.get(token):
                 g.revoked = True
+                self._cond.notify_all()  # waiters re-check the grant and get 401
+
+    def topup(self, grant: str, usd: float = 0.0, seconds: int = 0, deny: bool = False) -> dict | None:
+        """The operator's answer to a cap hit. Raises the cap by usd, clamped so the grant never gets more room than
+        its parents and the total cap have left. Nothing applied and no seconds = denied. Returns the stored decision
+        (what was applied); unknown/revoked: a no-op, None."""
+        with self._lock:
+            g = self._grants.get(grant or "")
+            if g is None or any(x.revoked for x in g.chain()):
+                return None
+            g.seq += 1
+            usd, seconds = _pos(usd), int(_pos(seconds))
+            if deny or not (usd or seconds):
+                g.decision = {"decision": "denied", "seq": g.seq}
+            else:
+                room = min([x.cap - x.spent - x.reserved for x in g.chain() if x is not g]
+                           + [self.caps["total"] - self._total_spent - self._total_reserved])
+                applied = max(0.0, min(usd, room - (g.cap - g.spent - g.reserved)))
+                g.cap += applied
+                g.decision = ({"decision": "raised", "usd": round(applied, 6), "seconds": seconds, "seq": g.seq}
+                              if applied > 0 or seconds else {"decision": "denied", "seq": g.seq})
+            self._cond.notify_all()
+            return dict(g.decision)
+
+    def topup_read(self, grant: str) -> dict:
+        """The last top-up decision (kept: the reader skips a seq it used), else pending. 401 on a bad grant."""
+        with self._lock:
+            return dict(self._get(grant).decision or {"decision": "pending"})
 
     def spent(self, token: str) -> float:
         with self._lock:
@@ -200,6 +262,20 @@ class Meter:
         for x in g.chain():
             x.reserved = max(0.0, x.reserved - est)
         self._total_reserved = max(0.0, self._total_reserved - est)
+        self._cond.notify_all()
+
+    def _must_wait(self, g: _Grant, want: int, in_usd: float, out_usd: float, role: str) -> bool:
+        """True when half the role clamp (else the floor) does not fit now but fits without the in-flight reserves:
+        only other calls' reserves are in the way, so a settle can free the room."""
+        if out_usd <= 0:
+            return False
+        left = self._left(g)
+        free = min(min(x.cap - x.spent for x in g.chain()), self.caps["total"] - self._total_spent)
+        for n in (min(want, ROLE_MAX_TOKENS.get(role, ROLE_MAX_TOKENS["tool"]) // 2),
+                  min(want, MIN_TOKENS.get(role, MIN_TOKENS_DEFAULT))):
+            if in_usd + n * out_usd <= free:
+                return in_usd + n * out_usd > left
+        return False
 
     # ---- the call -----------------------------------------------------------------------------
     def _prepare(self, body: dict, role: str) -> dict:
@@ -217,17 +293,35 @@ class Meter:
         body["max_tokens"] = max(1, min(want, clamp))
         return body
 
-    def chat(self, grant: str, body: dict, *, role: str = "main", tool: str | None = None) -> dict:
-        """reserve -> forward -> settle. Adds resp["x_meter"] = {cost_usd, grant_spent_usd, grant_left_usd}."""
-        started, t0 = datetime.now(UTC), time.monotonic()
+    def chat(self, grant: str, body: dict, *, role: str = "main", tool: str | None = None,
+             wait_s: float = WAIT_S) -> dict:
+        """[wait] -> fit -> reserve -> forward -> settle. Adds resp["x_meter"] = {cost_usd, grant_spent_usd,
+        grant_left_usd, max_tokens, waited_s}."""
+        t0 = time.monotonic()
         body = self._prepare(body, role)
-        p = price_table(self.prices, body["model"], started)
         size = len(json.dumps(body["messages"] + (body.get("tools") or []), ensure_ascii=False))
-        est = (size / 3) * p["miss"] / 1e6 + body["max_tokens"] * p["out"] / 1e6
+
+        def price() -> tuple[datetime, float, float]:  # prompt estimate; USD per output token
+            when = datetime.now(UTC)
+            p = price_table(self.prices, body["model"], when)
+            return when, (size / 3) * p["miss"] / 1e6, p["out"] / 1e6
+
+        started, in_usd, out_usd = price()
         with self._lock:
-            g = self._get(grant)
+            deadline = t0 + max(0.0, wait_s)
+            while True:  # Condition.wait releases the lock; settles, revokes and top-ups notify
+                g = self._get(grant)  # revoked while waiting: 401
+                rest = deadline - time.monotonic()
+                if rest <= 0 or not self._must_wait(g, body["max_tokens"], in_usd, out_usd, role):
+                    break
+                self._cond.wait(min(rest, WAIT_SLICE))
+            if (waited := time.monotonic() - t0) > 0.5:
+                started, in_usd, out_usd = price()  # the request starts now (peak / off-peak)
+            body["max_tokens"] = self._fit(g, body["max_tokens"], in_usd, out_usd, role)
+            est = in_usd + body["max_tokens"] * out_usd
             row = {"ts": started.isoformat(timespec="milliseconds"), "run_id": g.run_id, "build_id": g.build_id,
-                   "grant_kind": g.kind, "role": role, "tool": tool or g.tool, "model": body["model"]}
+                   "grant_kind": g.kind, "role": role, "tool": tool or g.tool, "model": body["model"],
+                   "max_tokens": body["max_tokens"]}
             try:
                 self._reserve(g, est)
             except MeterRefused:
@@ -254,16 +348,26 @@ class Meter:
             self._log({**row, **usage, "model": resp.get("model") or body["model"], "cost_usd": cost}, "ok",
                       int((time.monotonic() - t0) * 1000))
             resp["x_meter"] = {"cost_usd": round(cost, 6), "grant_spent_usd": round(g.spent, 6),
-                               "grant_left_usd": round(self._left(g), 6)}
+                               "grant_left_usd": round(self._left(g), 6), "max_tokens": body["max_tokens"],
+                               "waited_s": round(waited, 1)}
         return resp
 
+    def _fit(self, g: _Grant, want: int, in_usd: float, out_usd: float, role: str) -> int:
+        """Fit-to-budget clamp (D54): the largest max_tokens <= want whose reserve fits the budget left at every
+        cap level. Never below min(want, floor); at the floor a reserve that does not fit refuses (402)."""
+        left = self._left(g)
+        if out_usd <= 0 or in_usd + want * out_usd <= left:
+            return want
+        floor = min(want, MIN_TOKENS.get(role, MIN_TOKENS_DEFAULT))
+        return max(floor, min(want, int((left - in_usd) / out_usd) - 1))
+
     def _log(self, row: dict, status: str, latency_ms: int) -> None:
-        r = {"hit": 0, "miss": 0, "out": 0, "reasoning": 0, "cost_usd": 0.0, **row}
+        r = {"hit": 0, "miss": 0, "out": 0, "reasoning": 0, "cost_usd": 0.0, "max_tokens": None, **row}
         self._db.execute(
             "INSERT INTO calls(ts, session_id, run_id, build_id, grant_kind, role, tool, model, hit, miss, out,"
-            " reasoning, cost_usd, status, latency_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " reasoning, cost_usd, status, latency_ms, max_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (r["ts"], self.session_id, r["run_id"], r["build_id"], r["grant_kind"], r["role"], r["tool"], r["model"],
-             r["hit"], r["miss"], r["out"], r["reasoning"], r["cost_usd"], status, latency_ms))
+             r["hit"], r["miss"], r["out"], r["reasoning"], r["cost_usd"], status, latency_ms, r["max_tokens"]))
 
     # ---- status, balance, savings, reports ----------------------------------------------------
     def status(self) -> dict:
@@ -361,7 +465,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         meter = self.server.meter
-        if self.path not in ("/v1/chat/completions", "/chat/completions"):
+        if self.path not in CHAT_PATHS + TOPUP_PATHS:
             return self._reply(404, {"error": {"type": "not_found"}})
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -377,7 +481,11 @@ class _Handler(BaseHTTPRequestHandler):
             with meter._lock:
                 if meter._get(token).kind == "session":  # the container never gets session authority
                     raise MeterAuthError("session grant not allowed on the socket")
-            resp = meter.chat(token, body, role=role, tool=self.headers.get("X-Taltempla-Tool") or None)
+            if self.path in TOPUP_PATHS:  # read-only for the container: only the host raises a cap
+                return self._reply(200, meter.topup_read(token))
+            w = self.headers.get("X-Taltempla-Wait")  # the caller's bound (its deadline); a tool: no wait by default
+            w = min(WAIT_SOCKET_S, _pos(w)) if w is not None else 0.0 if role == "tool" else WAIT_SOCKET_S
+            resp = meter.chat(token, body, role=role, tool=self.headers.get("X-Taltempla-Tool") or None, wait_s=w)
         except MeterAuthError:
             return self._reply(401, {"error": {"type": "bad_grant"}})
         except MeterRefused as e:
@@ -500,7 +608,7 @@ def from_env(root: Path, session_id: str | None = None) -> Meter:
             if os.environ.get(f"TALTEMPLA_CAP_{k.upper()}")}
     return Meter(ledger_path=root / ".frank" / "ledger.db", prices_path=PKG / "prices.json", key=key,
                  base_url=env.get("OAI_COMPATIBLE_BASE_URL") or DEFAULT_BASE_URL, caps=caps,
-                 session_id=session_id or new_id("s"), model=os.environ.get("TALTEMPLA_MODEL") or DEFAULT_MODEL)
+                 session_id=session_id or new_id("s"), model=os.environ.get("TALTEMPLA_MODEL") or "deepseek-v4-pro")
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -7,11 +7,16 @@ SHELL := /bin/bash
 # Overridable on the command line, e.g. make run CAP_RUN=1 GATE=auto
 MODEL       ?= deepseek-v4-pro
 EFFORT      ?= high
-CAP_BUILD   ?= 0.60
-CAP_RUN     ?= 2.00
-CAP_SESSION ?= 5.00
+CAP_BUILD   ?= 1.00
+CAP_RUN     ?= 3.00
+CAP_SESSION ?= 6.00
 CAP_TOTAL   ?= 20.00
 GATE        ?= ask
+# Chef build defaults (G2/G3): the operator can change them at each build. Not CHEF_*: those go into the container.
+# BUILD_EFFORT empty = each role's CHEF_<ROLE>_EFFORT (default high); low|high|max = all Chef roles.
+BUILD_EFFORT  ?=
+BUILD_SECONDS ?= 360
+PLAN_SECONDS  ?= 150
 SHED_URL    ?= http://127.0.0.1:7700
 
 export TALTEMPLA_MODEL       := $(MODEL)
@@ -22,6 +27,9 @@ export TALTEMPLA_CAP_SESSION := $(CAP_SESSION)
 export TALTEMPLA_CAP_TOTAL   := $(CAP_TOTAL)
 export TALTEMPLA_GATE        := $(GATE)
 export TALTEMPLA_SHED_URL    := $(SHED_URL)
+export TALTEMPLA_BUILD_EFFORT  := $(BUILD_EFFORT)
+export TALTEMPLA_BUILD_SECONDS := $(BUILD_SECONDS)
+export TALTEMPLA_PLAN_SECONDS  := $(PLAN_SECONDS)
 
 IMAGE     := localhost/taltempla-shed:latest
 CONTAINER := taltempla-shed
@@ -47,7 +55,7 @@ SHED_RUN  := -p 127.0.0.1:7700:7700 -v $(VOLUME):/data -v $(WORKSPACE):/work -v 
 	    rollback history test m1 lint fmt lock spike-shed demo-reset clean
 
 help: ## List the targets (default)
-	echo "Taltempla targets (variables: MODEL EFFORT CAP_BUILD CAP_RUN CAP_SESSION CAP_TOTAL GATE, e.g. make run CAP_RUN=1):"
+	echo "Taltempla targets (variables: MODEL EFFORT CAP_BUILD CAP_RUN CAP_SESSION CAP_TOTAL GATE BUILD_EFFORT BUILD_SECONDS PLAN_SECONDS, e.g. make run CAP_RUN=1):"
 	grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "} {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 deps: ## Print the apt line for the system packages; install uv if missing; uv sync

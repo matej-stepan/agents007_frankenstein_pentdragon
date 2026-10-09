@@ -18,6 +18,11 @@ import urllib.parse
 RETRY_STATUS = {429, 500, 503}
 RETRIES = 2
 BACKOFF = (1.0, 3.0)  # seconds before retry 1 and 2 (a Retry-After header wins, up to 30 s)
+# One retry when the peer dropped the connection before any response (RemoteDisconnected is a ConnectionResetError).
+# Never on a timeout: the call may still run and be billed. Accepted risk: a drop after the meter / upstream already
+# forwarded the call bills it twice, once.
+TRANSIENT = (ConnectionResetError, ConnectionRefusedError, BrokenPipeError)
+TRANSIENT_BACKOFF = 2.0
 
 
 class LLMError(Exception):
@@ -63,21 +68,29 @@ def _parse(raw: bytes) -> dict | str:
 
 def request_json(method: str, body: dict | None = None, *, url: str | None = None, unix_socket: str | None = None,
                  path: str = "/chat/completions", headers: dict | None = None, timeout: float = 600) -> dict:
-    """One JSON request with retries on 429/500/503. Raises LLMError (status 0 = network error)."""
+    """One JSON request with retries on 429/500/503 and one on a dropped connection. Raises LLMError (status 0 =
+    network error)."""
     data = json.dumps(body).encode() if body is not None else None
     hdrs = {"Accept": "application/json", **(headers or {})}
     if data is not None:
         hdrs["Content-Type"] = "application/json"
-    for attempt in range(RETRIES + 1):
+    attempt = dropped = 0
+    while True:
         conn, prefix = _connection(url, unix_socket, timeout)
+        resp = None
         try:
             conn.request(method, prefix + path, body=data, headers=hdrs)
             resp = conn.getresponse()
             status, raw, retry_after = resp.status, resp.read(), resp.getheader("Retry-After")
         except (OSError, http.client.HTTPException) as e:
-            raise LLMError(0, f"{type(e).__name__}: {e}") from None
+            if resp is not None or not isinstance(e, TRANSIENT) or dropped:  # reply started / timeout / 2nd drop
+                raise LLMError(0, f"{type(e).__name__}: {e}") from None
+            dropped = 1
         finally:
             conn.close()
+        if resp is None:
+            time.sleep(TRANSIENT_BACKOFF)
+            continue
         if 200 <= status < 300:
             parsed = _parse(raw)
             if not isinstance(parsed, dict):
@@ -89,9 +102,9 @@ def request_json(method: str, body: dict | None = None, *, url: str | None = Non
             except (TypeError, ValueError):
                 wait = BACKOFF[min(attempt, len(BACKOFF) - 1)]
             time.sleep(wait)
+            attempt += 1
             continue
         raise LLMError(status, _parse(raw))
-    raise AssertionError("unreachable")
 
 
 def post_json(body: dict, *, url: str | None = None, unix_socket: str | None = None, path: str = "/chat/completions",
